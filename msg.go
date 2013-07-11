@@ -1,6 +1,8 @@
 package snmp_go
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -18,6 +20,21 @@ const (
 	INFORM_REQUEST           = 0xa6
 	V2_TRAP                  = 0xa7
 )
+
+func (pduType *PDUType) String() string {
+	switch *pduType {
+	case GET_REQUEST:
+		return "GET REQUEST"
+	case GET_NEXT_REQUEST:
+		return "GET NEXT REQUEST"
+	case GET_RESPONSE:
+		return "GET RESPONSE"
+	case SET_REQUEST:
+		return "SET REQUEST"
+	default:
+		return "UNKNOWN PDU TYPE"
+	}
+}
 
 type SnmpMessage interface {
 	marshal(bufferPool *bufferPool) []byte
@@ -170,4 +187,34 @@ func NewV2cSetRequest() *V2cRequest {
 	req.Version = Version2c
 	req.Type = SET_REQUEST
 	return req
+}
+
+func unmarshalMsg(buf *bytes.Buffer) (msg SnmpMessage, err error) {
+	msgType, length, err := unmarshalTypeAndLength(buf)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Unable to decode message header - err: %s", err))
+	}
+	if msgType != SEQUENCE {
+		return nil, errors.New(fmt.Sprintf("Invalid message header type - not 0x%x", SEQUENCE))
+	}
+	if length != buf.Len() {
+		return nil, errors.New(fmt.Sprintf("Invalid message length - expected %d, got %d", length, buf.Len()))
+	}
+	rawVersion, err := unmarshalInteger(buf)
+	if err != nil {
+		return nil, err
+	}
+	version := SnmpVersion(rawVersion)
+	switch version {
+	case Version1, Version2c:
+	default:
+		return nil, errors.New(fmt.Sprintf("Unsupported snmp version code 0x%x", version))
+	}
+	communityBytes, err := unmarshalOctetString(buf)
+	if err != nil {
+		return nil, err
+	}
+	community := string(communityBytes)
+	fmt.Printf("Unmarshalling message. Type: 0x%x, length: %d, version: %s, community: %s\n", msgType, length, version, community)
+	return
 }

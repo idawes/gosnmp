@@ -2,6 +2,7 @@ package snmp_go
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 )
 
@@ -19,26 +20,60 @@ func marshalTypeAndLength(buf *bytes.Buffer, t byte, l int) int {
 	return 1 + marshalLength(buf, l)
 }
 
-func marshalLength(buf *bytes.Buffer, lengthVal int) int {
-	if lengthVal < 127 {
-		buf.WriteByte(byte(lengthVal))
+func unmarshalTypeAndLength(buf *bytes.Buffer) (t byte, l int, err error) {
+	t, err = buf.ReadByte()
+	if err != nil {
+		return 0, 0, err
+	}
+	l, err = unmarshalLength(buf)
+	if err != nil {
+		return 0, 0, err
+	}
+	return
+}
+
+func marshalLength(buf *bytes.Buffer, l int) int {
+	if l < 127 {
+		buf.WriteByte(byte(l))
 		return 1
 	} else {
-		n := calculateLengthLen(lengthVal)
+		n := calculateLengthLen(l)
 		buf.WriteByte(0x80 | n)
 		for ; n > 0; n-- {
-			buf.WriteByte(byte(lengthVal >> uint((n-1)*8)))
+			buf.WriteByte(byte(l >> uint((n-1)*8)))
 		}
 		return int(n + 1)
 	}
 }
 
-func calculateLengthLen(lengthVal int) byte {
+func calculateLengthLen(l int) byte {
 	numBytes := 1
-	for ; lengthVal > 255; lengthVal >>= 8 {
+	for ; l > 255; l >>= 8 {
 		numBytes++
 	}
 	return byte(numBytes)
+}
+
+func unmarshalLength(buf *bytes.Buffer) (l int, err error) {
+	l = 0
+	firstByte, err := buf.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	if firstByte < 127 {
+		l = int(firstByte)
+		return
+	}
+	numBytes := firstByte
+	for ; numBytes > 0; numBytes-- {
+		temp, err := buf.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		l <<= 8
+		l += int(temp)
+	}
+	return
 }
 
 func marshalBase128Int(buf *bytes.Buffer, val int64) int {
@@ -84,15 +119,60 @@ func calculate2sComplementIntLen(val int64) int {
 	return numBytes
 }
 
-// marshalInteger
+func unmarshal2sComplementInt(buf *bytes.Buffer, numBytes int) (val int64, err error) {
+	for i := 0; i < numBytes; i++ {
+		temp, err := buf.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		val <<= 8
+		val |= int64(temp)
+	}
+
+	// Shift up and down in order to sign extend the result.
+	val <<= 64 - uint8(numBytes)*8
+	val >>= 64 - uint8(numBytes)*8
+	return
+}
+
 func marshalInteger(headerBuf, valBuf *bytes.Buffer, val int64) int {
 	numWritten := marshal2sComplementInt(valBuf, val)
 	return numWritten + marshalTypeAndLength(headerBuf, INTEGER, numWritten)
 }
 
+func unmarshalInteger(buf *bytes.Buffer) (val int64, err error) {
+	t, l, err := unmarshalTypeAndLength(buf)
+	if err != nil {
+		return 0, err
+	}
+	if t != INTEGER {
+		return 0, errors.New(fmt.Sprintf("Expecting type %x, found %x", INTEGER, t))
+	}
+	val, err = unmarshal2sComplementInt(buf, l)
+	return
+}
+
 func marshalOctetString(headerBuf, valBuf *bytes.Buffer, val []byte) int {
 	numWritten, _ := valBuf.Write(val)
 	return numWritten + marshalTypeAndLength(headerBuf, OCTET_STRING, numWritten)
+}
+
+func unmarshalOctetString(buf *bytes.Buffer) (val []byte, err error) {
+	t, l, err := unmarshalTypeAndLength(buf)
+	if err != nil {
+		return nil, err
+	}
+	if t != OCTET_STRING {
+		return nil, errors.New(fmt.Sprintf("Expecting type %x, found %x", OCTET_STRING, t))
+	}
+	if l > buf.Len() {
+		return nil, errors.New(fmt.Sprintf("Invalid length %d for octet string"))
+	}
+	val = make([]byte, l)
+	if numRead, err := buf.Read(val); err != nil || numRead != l {
+		return nil, errors.New(fmt.Sprintf("Couldn't decode octet string of length %d, numRead: %d, err: %s", l, numRead, err))
+	}
+	return
 }
 
 func marshalObjectIdentifier(headerBuf, valBuf *bytes.Buffer, oid []int32) int {

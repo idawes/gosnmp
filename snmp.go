@@ -1,6 +1,7 @@
 package snmp_go
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -13,6 +14,17 @@ const (
 	Version2c             = 0x01
 )
 
+func (version SnmpVersion) String() string {
+	switch version {
+	case Version1:
+		return "SNMPv1"
+	case Version2c:
+		return "SNMPv2c"
+	default:
+		return "Unknown"
+	}
+}
+
 type SnmpContext struct {
 	requestTracker *requestTracker
 	txBufferPool   *bufferPool
@@ -21,7 +33,7 @@ type SnmpContext struct {
 	outboundQueue  chan SnmpMessage
 }
 
-func NewSnmpClientContext(maxTargets int) (ctxt *SnmpContext, err error) {
+func NewClientContext(maxTargets int) (ctxt *SnmpContext, err error) {
 	ctxt = new(SnmpContext)
 	ctxt.requestTracker = ctxt.newRequestTracker(maxTargets)
 	if ctxt.conn, err = net.ListenUDP("udp", nil); err != nil {
@@ -32,6 +44,17 @@ func NewSnmpClientContext(maxTargets int) (ctxt *SnmpContext, err error) {
 	ctxt.txBufferPool = newBufferPool(maxTargets*5, 64)
 	ctxt.outboundQueue = make(chan SnmpMessage, maxTargets)
 	go ctxt.processOutboundQueue()
+	return
+}
+
+func NewTrapReceiverContext(queueDepth int, port int) (ctxt *SnmpContext, err error) {
+	ctxt = new(SnmpContext)
+	if ctxt.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: port}); err != nil {
+		return nil, errors.New(fmt.Sprintf("Couldn't bind local port, error: %s", err))
+	}
+	fmt.Println(ctxt.conn.LocalAddr())
+	ctxt.rxBufferPool = newBufferPool(queueDepth, 2000)
+	go ctxt.listen()
 	return
 }
 
@@ -88,16 +111,23 @@ func (tracker *requestTracker) trackRequest(req SnmpRequest) {
 }
 
 func (ctxt *SnmpContext) listen() {
+	buf := make([]byte, 0, 2000)
 	for {
-		buf := ctxt.rxBufferPool.getBuffer()
-		b := buf.Bytes()
-		b = b[:cap(b)]
-		readSize, addr, err := ctxt.conn.ReadFromUDP(b)
+		buf = buf[0:cap(buf)]
+		readLen, addr, err := ctxt.conn.ReadFromUDP(buf)
 		if err != nil {
 			fmt.Printf("Couldn't read message: %s\n", err)
 		} else {
-			fmt.Printf("Read message of size %d from %v\n", readSize, addr)
+			ctxt.processIncomingMessage(buf[0:readLen], addr)
 		}
+	}
+}
+
+func (ctxt *SnmpContext) processIncomingMessage(buf []byte, addr *net.UDPAddr) {
+	_, err := unmarshalMsg(bytes.NewBuffer(buf))
+	if err != nil {
+		fmt.Printf("Unmarshalling failed for message %v. Err: %s\n", buf, err)
+		return
 	}
 }
 
