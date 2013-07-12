@@ -60,7 +60,7 @@ func NewTrapReceiverContext(queueDepth int, port int) (ctxt *SnmpContext, err er
 
 type requestTracker struct {
 	context       *SnmpContext
-	inboundQueue  chan SnmpMessage
+	inboundQueue  chan SnmpResponse
 	outboundQueue chan SnmpRequest
 	timeoutQueue  chan SnmpRequest
 	msgs          map[int32]SnmpRequest
@@ -69,7 +69,7 @@ type requestTracker struct {
 func (ctxt *SnmpContext) newRequestTracker(outboundSize int) (tracker *requestTracker) {
 	tracker = new(requestTracker)
 	tracker.context = ctxt
-	tracker.inboundQueue = make(chan SnmpMessage, 100)
+	tracker.inboundQueue = make(chan SnmpResponse, 100)
 	tracker.outboundQueue = make(chan SnmpRequest, outboundSize)
 	tracker.timeoutQueue = make(chan SnmpRequest)
 	tracker.msgs = make(map[int32]SnmpRequest)
@@ -80,13 +80,13 @@ func (ctxt *SnmpContext) newRequestTracker(outboundSize int) (tracker *requestTr
 func (tracker *requestTracker) startTracking() {
 	var nextRequestId int32 = 0
 	var (
-		msg SnmpMessage
-		req SnmpRequest
+		resp SnmpResponse
+		req  SnmpRequest
 	)
 	for {
 		select {
-		case msg = <-tracker.inboundQueue:
-			msg.getRequestId()
+		case resp = <-tracker.inboundQueue:
+			resp.getRequestId()
 		case req = <-tracker.outboundQueue:
 			nextRequestId += 1
 			req.setRequestId(nextRequestId)
@@ -124,16 +124,18 @@ func (ctxt *SnmpContext) listen() {
 }
 
 func (ctxt *SnmpContext) processIncomingMessage(buf []byte, addr *net.UDPAddr) {
-	_, err := unmarshalMsg(bytes.NewBuffer(buf))
+	msg, err := unmarshalMsg(bytes.NewBuffer(buf))
 	if err != nil {
 		fmt.Printf("Unmarshalling failed for message %v. Err: %s\n", buf, err)
 		return
 	}
+	msg.setAddress(addr)
+	fmt.Printf("Message: %#v", msg)
 }
 
 func (ctxt *SnmpContext) processOutboundQueue() {
 	for msg := range ctxt.outboundQueue {
-		ctxt.conn.WriteToUDP(msg.marshal(ctxt.txBufferPool), msg.getTargetAddress())
+		ctxt.conn.WriteToUDP(msg.marshal(ctxt.txBufferPool), msg.getAddress())
 	}
 }
 

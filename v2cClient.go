@@ -9,7 +9,7 @@ import (
 
 type V2cClient struct {
 	context        *SnmpContext
-	responseChan   chan *V2cResponse
+	responseChan   chan *CommunityResponse
 	errorChan      chan error
 	Address        *net.UDPAddr
 	TimeoutSeconds int
@@ -24,7 +24,7 @@ func (ctxt *SnmpContext) NewV2cClient(community string, address string) (client 
 func (ctxt *SnmpContext) NewV2cClientWithPort(community string, address string, port int) (client *V2cClient, err error) {
 	client = new(V2cClient)
 	client.context = ctxt
-	client.responseChan = make(chan *V2cResponse)
+	client.responseChan = make(chan *CommunityResponse)
 	client.errorChan = make(chan error)
 	client.Community = community
 	if port > 65535 {
@@ -39,15 +39,15 @@ func (ctxt *SnmpContext) NewV2cClientWithPort(community string, address string, 
 	return
 }
 
-func (client *V2cClient) SendRequest(req *V2cRequest) (resp *V2cResponse, err error) {
+func (client *V2cClient) SendRequest(req *CommunityRequest) (resp *CommunityResponse, err error) {
 	if req.inFlight {
 		return nil, errors.New("Message is already in flight")
 	}
 	req.inFlight = true
-	req.targetAddress = client.Address
+	req.address = client.Address
 	req.community = client.Community
-	req.TimeoutSeconds = client.TimeoutSeconds
-	req.Retries = client.Retries
+	req.timeoutSeconds = client.TimeoutSeconds
+	req.retries = client.Retries
 	req.responseHandler = client.processResponse
 	client.context.requestTracker.trackRequest(req)
 	select {
@@ -62,6 +62,27 @@ func (client *V2cClient) processResponse(req SnmpRequest, resp SnmpResponse, err
 	if err != nil {
 		client.errorChan <- err
 	} else {
-		client.responseChan <- resp.(*V2cResponse)
+		client.responseChan <- resp.(*CommunityResponse)
 	}
+}
+
+func (client *V2cClient) NewGetRequest() *CommunityRequest {
+	req := new(CommunityRequest)
+	req.version = Version2c
+	req.pduType = GET_REQUEST
+	return req
+}
+
+func (client *V2cClient) NewGetNextRequest() *CommunityRequest {
+	req := new(CommunityRequest)
+	req.version = Version2c
+	req.pduType = GET_NEXT_REQUEST
+	return req
+}
+
+func (client *V2cClient) NewSetRequest() *CommunityRequest {
+	req := new(CommunityRequest)
+	req.version = Version2c
+	req.pduType = SET_REQUEST
+	return req
 }
