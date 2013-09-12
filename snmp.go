@@ -31,10 +31,12 @@ type SnmpContext struct {
 	rxBufferPool   *bufferPool
 	conn           *net.UDPConn
 	outboundQueue  chan SnmpMessage
+	logger         Logger
 }
 
-func NewClientContext(maxTargets int) (ctxt *SnmpContext, err error) {
+func NewClientContext(maxTargets int, logger Logger) (ctxt *SnmpContext, err error) {
 	ctxt = new(SnmpContext)
+	ctxt.logger = logger
 	ctxt.requestTracker = ctxt.newRequestTracker(maxTargets)
 	if ctxt.conn, err = net.ListenUDP("udp", nil); err != nil {
 		return nil, errors.New(fmt.Sprintf("Couldn't bind local port, error: %s", err))
@@ -47,15 +49,13 @@ func NewClientContext(maxTargets int) (ctxt *SnmpContext, err error) {
 	return
 }
 
-func NewTrapReceiverContext(queueDepth int, port int) (ctxt *SnmpContext, err error) {
-	ctxt = new(SnmpContext)
+func (ctxt *SnmpContext) startReceiver(queueDepth int, port int) (err error) {
 	if ctxt.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: port}); err != nil {
-		return nil, errors.New(fmt.Sprintf("Couldn't bind local port, error: %s", err))
+		return errors.New(fmt.Sprintf("Couldn't bind local port, error: %s", err))
 	}
-	fmt.Println(ctxt.conn.LocalAddr())
 	ctxt.rxBufferPool = newBufferPool(queueDepth, 2000)
 	go ctxt.listen()
-	return
+	return nil
 }
 
 type requestTracker struct {
@@ -63,7 +63,7 @@ type requestTracker struct {
 	inboundQueue  chan SnmpResponse
 	outboundQueue chan SnmpRequest
 	timeoutQueue  chan SnmpRequest
-	msgs          map[int32]SnmpRequest
+	msgs          map[uint32]SnmpRequest
 }
 
 func (ctxt *SnmpContext) newRequestTracker(outboundSize int) (tracker *requestTracker) {
@@ -72,13 +72,13 @@ func (ctxt *SnmpContext) newRequestTracker(outboundSize int) (tracker *requestTr
 	tracker.inboundQueue = make(chan SnmpResponse, 100)
 	tracker.outboundQueue = make(chan SnmpRequest, outboundSize)
 	tracker.timeoutQueue = make(chan SnmpRequest)
-	tracker.msgs = make(map[int32]SnmpRequest)
+	tracker.msgs = make(map[uint32]SnmpRequest)
 	go tracker.startTracking()
 	return
 }
 
 func (tracker *requestTracker) startTracking() {
-	var nextRequestId int32 = 0
+	var nextRequestId uint32 = 0
 	var (
 		resp SnmpResponse
 		req  SnmpRequest
@@ -86,13 +86,25 @@ func (tracker *requestTracker) startTracking() {
 	for {
 		select {
 		case resp = <-tracker.inboundQueue:
-			resp.getRequestId()
+			req = tracker.msgs[resp.getRequestId()]
+			if req == nil {
+				// most likely we've already timed out the request.
+				continue
+			}
+			req.stopTimer()
+			req.setResponse(resp)
+			responseHandler := req.getResponseHandler()
+			if responseHandler == nil {
+
+				responseHandler <- req
+			}
 		case req = <-tracker.outboundQueue:
 			nextRequestId += 1
 			req.setRequestId(nextRequestId)
 			req.resetRetryCount()
 			tracker.msgs[nextRequestId] = req
 			req.startTimer(tracker.timeoutQueue)
+			tracker.context.logger.Debugf("Tracker queuing outbound message %s", req.GetLoggingId())
 			tracker.context.outboundQueue <- req
 		case req = <-tracker.timeoutQueue:
 			if req.isRetryRequired() {
@@ -100,7 +112,11 @@ func (tracker *requestTracker) startTracking() {
 				tracker.context.outboundQueue <- req
 			} else {
 				delete(tracker.msgs, req.getRequestId())
-				req.ProcessResponse(nil, new(TimeoutError))
+				req.setError(new(TimeoutError))
+				responseHandler := req.getResponseHandler()
+				if responseHandler != nil {
+					responseHandler <- req
+				}
 			}
 		}
 	}
@@ -139,13 +155,9 @@ func (ctxt *SnmpContext) processOutboundQueue() {
 	}
 }
 
-func (client *V2cClient) SendAsyncMsgToAddress(msg V2cMessage, address *net.UDPAddr, callback func(V2cMessage, err error)) (err error) {
-	return
-}
-
 type TimeoutError struct {
 }
 
-func (t *TimeoutError) Error() string {
+func (t TimeoutError) Error() string {
 	return "Timed out"
 }

@@ -175,7 +175,7 @@ func unmarshalOctetString(buf *bytes.Buffer) (val []byte, err error) {
 	return
 }
 
-func marshalObjectIdentifier(headerBuf, valBuf *bytes.Buffer, oid []int32) int {
+func marshalObjectIdentifier(headerBuf, valBuf *bytes.Buffer, oid []uint32) int {
 	if len(oid) < 2 || oid[0] > 6 || oid[1] >= 40 {
 		panic(fmt.Sprintf("Invalid oid: %v", oid))
 	}

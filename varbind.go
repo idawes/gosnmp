@@ -5,11 +5,11 @@ import (
 )
 
 type Varbind interface {
-	Marshal(bufChain *bufferChain) (marshalledLen int)
+	marshal(bufChain *bufferChain) (marshalledLen int)
 }
 
 type baseVarbind struct {
-	oid           []int32
+	oid           []uint32
 	varbindHeader *bytes.Buffer
 	oidHeader     *bytes.Buffer
 	oidBody       *bytes.Buffer
@@ -30,7 +30,7 @@ type IntegerVarbind struct { // type 0x02
 	val int32
 }
 
-func (vb *IntegerVarbind) Marshal(bufChain *bufferChain) (marshalledLen int) {
+func (vb *IntegerVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
 	vb.prepareMarshallingBuffers(bufChain)
 	len := marshalInteger(vb.valHeader, vb.valBody, int64(vb.val))
 	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)
@@ -47,7 +47,7 @@ type OctetStringVarbind struct { // type 0x04
 	val []byte
 }
 
-func (vb *OctetStringVarbind) Marshal(bufChain *bufferChain) (marshalledLen int) {
+func (vb *OctetStringVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
 	vb.prepareMarshallingBuffers(bufChain)
 	len := marshalOctetString(vb.valHeader, vb.valBody, vb.val)
 	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)
@@ -58,13 +58,13 @@ type NullVarbind struct { // type 0x05
 	baseVarbind
 }
 
-func NewNullVarbind(oid []int32) *NullVarbind {
+func NewNullVarbind(oid []uint32) *NullVarbind {
 	vb := new(NullVarbind)
 	vb.oid = oid
 	return vb
 }
 
-func (vb *NullVarbind) Marshal(bufChain *bufferChain) (marshalledLen int) {
+func (vb *NullVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
 	vb.prepareMarshallingBuffers(bufChain)
 	len := marshalTypeAndLength(vb.valHeader, NULL, 0)
 	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)
@@ -73,10 +73,10 @@ func (vb *NullVarbind) Marshal(bufChain *bufferChain) (marshalledLen int) {
 
 type ObjectIdentifierVarbind struct { // type 0x06
 	baseVarbind
-	val []int32
+	val []uint32
 }
 
-func (vb *ObjectIdentifierVarbind) Marshal(bufChain *bufferChain) (marshalledLen int) {
+func (vb *ObjectIdentifierVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
 	vb.prepareMarshallingBuffers(bufChain)
 	len := marshalObjectIdentifier(vb.valHeader, vb.valBody, vb.val)
 	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)

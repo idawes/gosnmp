@@ -41,22 +41,27 @@ type SnmpMessage interface {
 	marshal(bufferPool *bufferPool) []byte
 	getAddress() *net.UDPAddr
 	setAddress(*net.UDPAddr)
+	GetLoggingId() string
 }
 
 type SnmpRequest interface {
 	SnmpMessage
-	AddOid(oid []int32)
-	AddOids(oids [][]int32)
-	ProcessResponse(SnmpResponse, error)
-	setRequestId(requestId int32)
-	getRequestId() int32
+	AddOid(oid []uint32)
+	AddOids(oids [][]uint32)
+	GetFlightTime() time.Duration
+	getResponseHandler() chan<- SnmpRequest
+	setRequestId(requestId uint32)
+	getRequestId() uint32
 	resetRetryCount()
 	isRetryRequired() bool
 	startTimer(expiredMsgChannel chan<- SnmpRequest)
+	stopTimer()
+	setResponse(resp SnmpResponse)
+	setError(err error)
 }
 
 type SnmpResponse interface {
-	getRequestId() int32
+	getRequestId() uint32
 }
 
 type V2cMessage interface {
@@ -134,21 +139,24 @@ func unmarshalCommunityMsg(buf *bytes.Buffer, version SnmpVersion) (msg SnmpMess
 // base type for all v1/v2c messages other than v1Trap
 type communityRequestResponse struct {
 	communityMessage
-	requestId int32
+	requestId uint32
 	errorVal  int32
 	errorIdx  int32
 }
 
-func (msg *communityRequestResponse) setRequestId(requestId int32) {
+func (msg *communityRequestResponse) GetLoggingId() string {
+	return fmt.Sprintf("%s:%d", msg.pduType.String(), msg.requestId)
+}
+
+func (msg *communityRequestResponse) setRequestId(requestId uint32) {
 	msg.requestId = requestId
 }
 
-func (msg *communityRequestResponse) getRequestId() int32 {
+func (msg *communityRequestResponse) getRequestId() uint32 {
 	return msg.requestId
 }
 
 func (msg *communityRequestResponse) marshal(bufferPool *bufferPool) []byte {
-	fmt.Printf("%v Marshalling msg %d\n", time.Now(), msg.requestId)
 	chain := newBufferChain(bufferPool)
 	defer chain.destroy()
 	msgHeader := chain.addBufToTail()
@@ -161,7 +169,7 @@ func (msg *communityRequestResponse) marshal(bufferPool *bufferPool) []byte {
 	varbindsListHeader := chain.addBufToTail()
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += varbind.Marshal(chain)
+		varbindsLen += varbind.marshal(chain)
 	}
 	pduLen += varbindsLen
 	pduLen += marshalTypeAndLength(varbindsListHeader, SEQUENCE, varbindsLen)
@@ -177,22 +185,35 @@ func (msg *communityRequestResponse) unmarshal(buf *bytes.Buffer) (err error) {
 
 type CommunityRequest struct {
 	communityRequestResponse
-	response        *communityRequestResponse
+	response        SnmpResponse
 	timeoutSeconds  int
 	retries         int
 	retryCount      int
 	timer           *time.Timer
 	timeoutChan     chan<- SnmpRequest
-	responseHandler func(SnmpRequest, SnmpResponse, error)
-	inFlight        bool
+	responseHandler chan<- SnmpRequest
+	flightStartTime time.Time
+	flightTime      time.Duration
+	err             error
+}
+
+func (req *CommunityRequest) GetFlightTime() time.Duration {
+	return req.flightTime
 }
 
 func (req *CommunityRequest) startTimer(timeoutChan chan<- SnmpRequest) {
 	req.timeoutChan = timeoutChan
+	req.flightStartTime = time.Now()
 	req.timer = time.AfterFunc(time.Duration(req.timeoutSeconds)*time.Second, req.handleTimeout)
 }
 
+func (req *CommunityRequest) stopTimer() {
+	req.timer.Stop()
+	req.flightTime = time.Since(req.flightStartTime)
+}
+
 func (req *CommunityRequest) handleTimeout() {
+	req.flightTime = time.Since(req.flightStartTime)
 	req.timeoutChan <- req
 }
 
@@ -205,11 +226,11 @@ func (req *CommunityRequest) isRetryRequired() bool {
 	return req.retryCount <= req.retries
 }
 
-func (req *CommunityRequest) AddOid(oid []int32) {
+func (req *CommunityRequest) AddOid(oid []uint32) {
 	req.varbinds = append(req.varbinds, NewNullVarbind(oid))
 }
 
-func (req *CommunityRequest) AddOids(oids [][]int32) {
+func (req *CommunityRequest) AddOids(oids [][]uint32) {
 	temp := make([]Varbind, len(oids))
 	for i, oid := range oids {
 		temp[i] = NewNullVarbind(oid)
@@ -217,8 +238,24 @@ func (req *CommunityRequest) AddOids(oids [][]int32) {
 	req.varbinds = append(req.varbinds, temp...)
 }
 
-func (req *CommunityRequest) ProcessResponse(resp SnmpResponse, err error) {
-	req.responseHandler(req, resp, err)
+func (req *CommunityRequest) getResponseHandler() chan<- SnmpRequest {
+	return req.responseHandler
+}
+
+func (req *CommunityRequest) setResponse(resp SnmpResponse) {
+	req.response = resp
+}
+
+func (req *CommunityRequest) setError(err error) {
+	req.err = err
+}
+
+func (req *CommunityRequest) GetResponse() (resp SnmpResponse) {
+	return req.response
+}
+
+func (req *CommunityRequest) GetError() (err error) {
+	return req.err
 }
 
 type CommunityResponse struct {
@@ -232,6 +269,10 @@ type V1Trap struct {
 	genericTrap  uint32
 	specificTrap uint32
 	timeStamp    uint32
+}
+
+func (msg *V1Trap) GetLoggingId() string {
+	return fmt.Sprintf("%s:%d", msg.pduType, msg.timeStamp)
 }
 
 func (msg *V1Trap) marshal(bufferPool *bufferPool) []byte {
@@ -248,7 +289,7 @@ func (msg *V1Trap) marshal(bufferPool *bufferPool) []byte {
 	varbindsListHeader := chain.addBufToTail()
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += varbind.Marshal(chain)
+		varbindsLen += varbind.marshal(chain)
 	}
 	pduLen += varbindsLen
 	pduLen += marshalTypeAndLength(varbindsListHeader, SEQUENCE, varbindsLen)
