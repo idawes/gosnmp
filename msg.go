@@ -1,9 +1,9 @@
 package snmp_go
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
+	. "github.com/idawes/ber_go"
 	"net"
 	"time"
 )
@@ -38,7 +38,7 @@ func (pduType *PDUType) String() string {
 }
 
 type SnmpMessage interface {
-	marshal(bufferPool *bufferPool) []byte
+	encode(encoderFactory *BerEncoderFactory) []byte
 	getAddress() *net.UDPAddr
 	setAddress(*net.UDPAddr)
 	GetLoggingId() string
@@ -89,18 +89,18 @@ type communityMessage struct {
 	community string
 }
 
-func unmarshalCommunityMsg(buf *bytes.Buffer, version SnmpVersion) (msg SnmpMessage, err error) {
-	communityBytes, err := unmarshalOctetString(buf)
+func decodeCommunityMessage(decoder *BerDecoder, version SnmpVersion) (msg SnmpMessage, err error) {
+	communityBytes, err := decoder.DecodeOctetString()
 	if err != nil {
 		return nil, err
 	}
 	community := string(communityBytes)
-	rawPduType, pduLength, err := unmarshalTypeAndLength(buf)
+	rawPduType, pduLength, err := decoder.DecodeHeader()
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Unabled to decode pdu header - err: %s", err))
 	}
-	if pduLength != buf.Len() {
-		return nil, errors.New(fmt.Sprintf("Invalid pdu length - expected %d, got %d", pduLength, buf.Len()))
+	if pduLength != decoder.Len() {
+		return nil, errors.New(fmt.Sprintf("Encoded pdu length %d doesn't match remaining msg length %d", pduLength, decoder.Len()))
 	}
 	pduType := PDUType(rawPduType)
 	switch pduType {
@@ -109,7 +109,7 @@ func unmarshalCommunityMsg(buf *bytes.Buffer, version SnmpVersion) (msg SnmpMess
 		_msg.version = version
 		_msg.community = community
 		_msg.pduType = pduType
-		_msg.unmarshal(buf)
+		_msg.decode(decoder)
 		msg = _msg
 	case GET_BULK_REQUEST, INFORM_REQUEST, V2_TRAP, REPORT:
 		if version == Version1 {
@@ -119,7 +119,7 @@ func unmarshalCommunityMsg(buf *bytes.Buffer, version SnmpVersion) (msg SnmpMess
 		_msg.version = version
 		_msg.community = community
 		_msg.pduType = pduType
-		_msg.unmarshal(buf)
+		_msg.decode(decoder)
 		msg = _msg
 	case V1_TRAP:
 		if version != Version1 {
@@ -129,6 +129,7 @@ func unmarshalCommunityMsg(buf *bytes.Buffer, version SnmpVersion) (msg SnmpMess
 		_msg.version = version
 		_msg.community = community
 		_msg.pduType = V1_TRAP
+		_msg.decode(decoder)
 		msg = _msg
 	default:
 		return nil, errors.New(fmt.Sprintf("Unsupported PDU type: 0x%x", rawPduType))
@@ -156,30 +157,29 @@ func (msg *communityRequestResponse) getRequestId() uint32 {
 	return msg.requestId
 }
 
-func (msg *communityRequestResponse) marshal(bufferPool *bufferPool) []byte {
-	chain := newBufferChain(bufferPool)
-	defer chain.destroy()
-	msgHeader := chain.addBufToTail()
-	msgLen := marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.version))
-	msgLen += marshalOctetString(chain.addBufToTail(), chain.addBufToTail(), []byte(msg.community))
-	pduHeader := chain.addBufToTail()
-	pduLen := marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.requestId))
-	pduLen += marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.errorVal))
-	pduLen += marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.errorIdx))
-	varbindsListHeader := chain.addBufToTail()
+func (msg *communityRequestResponse) encode(encoderFactory *BerEncoderFactory) []byte {
+	encoder := encoderFactory.NewBerEncoder()
+	defer encoder.Destroy()
+	msgHeader := encoder.NewHeader(SEQUENCE)
+	headerFieldsLen := encoder.EncodeInteger(int64(msg.version))
+	headerFieldsLen += encoder.EncodeOctetString([]byte(msg.community))
+	headerFieldsLen += encoder.EncodeInteger(int64(msg.requestId))
+	headerFieldsLen += encoder.EncodeInteger(int64(msg.errorVal))
+	headerFieldsLen += encoder.EncodeInteger(int64(msg.errorIdx))
+	pduHeader := encoder.NewHeader(byte(msg.pduType))
+	varbindsListHeader := encoder.NewHeader(SEQUENCE)
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += varbind.marshal(chain)
+		varbindsLen += varbind.encode(encoder)
 	}
-	pduLen += varbindsLen
-	pduLen += marshalTypeAndLength(varbindsListHeader, SEQUENCE, varbindsLen)
-	msgLen += pduLen
-	msgLen += marshalTypeAndLength(pduHeader, byte(msg.pduType), pduLen)
-	marshalTypeAndLength(msgHeader, SEQUENCE, msgLen)
-	return chain.collapse()
+	_, pduLen := varbindsListHeader.SetContentLength(varbindsLen)
+	_, msgLen := pduHeader.SetContentLength(pduLen)
+	msgLen += headerFieldsLen
+	msgHeader.SetContentLength(msgLen)
+	return encoder.Serialize()
 }
 
-func (msg *communityRequestResponse) unmarshal(buf *bytes.Buffer) (err error) {
+func (msg *communityRequestResponse) decode(decoder *BerDecoder) (err error) {
 	return
 }
 
@@ -275,49 +275,49 @@ func (msg *V1Trap) GetLoggingId() string {
 	return fmt.Sprintf("%s:%d", msg.pduType, msg.timeStamp)
 }
 
-func (msg *V1Trap) marshal(bufferPool *bufferPool) []byte {
-	chain := newBufferChain(bufferPool)
-	defer chain.destroy()
-	msgHeader := chain.addBufToTail()
-	msgLen := marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.version))
-	msgLen += marshalOctetString(chain.addBufToTail(), chain.addBufToTail(), []byte(msg.community))
-	pduHeader := chain.addBufToTail()
-	pduLen := 0
-	// pduLen := marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.requestId))
-	// pduLen += marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.errorVal))
-	// pduLen += marshalInteger(chain.addBufToTail(), chain.addBufToTail(), int64(msg.errorIdx))
-	varbindsListHeader := chain.addBufToTail()
+func (msg *V1Trap) encode(encoderFactory *BerEncoderFactory) []byte {
+	encoder := encoderFactory.NewBerEncoder()
+	defer encoder.Destroy()
+	msgHeader := encoder.NewHeader(SEQUENCE)
+	headerFieldsLen := encoder.EncodeInteger(int64(msg.version))
+	headerFieldsLen += encoder.EncodeOctetString([]byte(msg.community))
+	pduHeader := encoder.NewHeader(byte(msg.pduType))
+	varbindsListHeader := encoder.NewHeader(SEQUENCE)
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += varbind.marshal(chain)
+		varbindsLen += varbind.encode(encoder)
 	}
-	pduLen += varbindsLen
-	pduLen += marshalTypeAndLength(varbindsListHeader, SEQUENCE, varbindsLen)
-	msgLen += pduLen
-	msgLen += marshalTypeAndLength(pduHeader, byte(msg.pduType), pduLen)
-	marshalTypeAndLength(msgHeader, SEQUENCE, msgLen)
-	return chain.collapse()
+	_, pduLen := varbindsListHeader.SetContentLength(varbindsLen)
+	_, msgLen := pduHeader.SetContentLength(pduLen)
+	msgLen += headerFieldsLen
+	msgHeader.SetContentLength(msgLen)
+	return encoder.Serialize()
 }
 
-func unmarshalMsg(buf *bytes.Buffer) (msg SnmpMessage, err error) {
-	msgType, length, err := unmarshalTypeAndLength(buf)
+func (msg *V1Trap) decode(decoder *BerDecoder) (err error) {
+	return
+}
+
+func decodeMsg(rawMsg []byte) (decodedMsg SnmpMessage, err error) {
+	decoder := NewBerDecoder(rawMsg)
+	msgType, length, err := decoder.DecodeHeader()
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("Unable to decode message header - err: %s", err))
 	}
 	if msgType != SEQUENCE {
-		return nil, errors.New(fmt.Sprintf("Invalid message header type - not 0x%x", SEQUENCE))
+		return nil, errors.New(fmt.Sprintf("Invalid message header type 0x%x - not 0x%x", msgType, SEQUENCE))
 	}
-	if length != buf.Len() {
-		return nil, errors.New(fmt.Sprintf("Invalid message length - expected %d, got %d", length, buf.Len()))
+	if length != decoder.Len() {
+		return nil, errors.New(fmt.Sprintf("Invalid message length - expected %d, got %d", length, decoder.Len()))
 	}
-	rawVersion, err := unmarshalInteger(buf)
+	rawVersion, err := decoder.DecodeInteger()
 	if err != nil {
 		return nil, err
 	}
 	version := SnmpVersion(rawVersion)
 	switch version {
 	case Version1, Version2c:
-		return unmarshalCommunityMsg(buf, version)
+		return decodeCommunityMessage(decoder, version)
 	default:
 		return nil, errors.New(fmt.Sprintf("Unsupported snmp version code 0x%x", version))
 	}

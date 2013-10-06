@@ -1,9 +1,9 @@
 package snmp_go
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
+	. "github.com/idawes/ber_go"
 	"net"
 )
 
@@ -26,12 +26,11 @@ func (version SnmpVersion) String() string {
 }
 
 type SnmpContext struct {
-	requestTracker *requestTracker
-	txBufferPool   *bufferPool
-	rxBufferPool   *bufferPool
-	conn           *net.UDPConn
-	outboundQueue  chan SnmpMessage
-	logger         Logger
+	requestTracker    *requestTracker
+	berEncoderFactory *BerEncoderFactory
+	conn              *net.UDPConn
+	outboundQueue     chan SnmpMessage
+	logger            Logger
 }
 
 func NewClientContext(maxTargets int, logger Logger) (ctxt *SnmpContext, err error) {
@@ -41,9 +40,8 @@ func NewClientContext(maxTargets int, logger Logger) (ctxt *SnmpContext, err err
 	if ctxt.conn, err = net.ListenUDP("udp", nil); err != nil {
 		return nil, errors.New(fmt.Sprintf("Couldn't bind local port, error: %s", err))
 	}
-	ctxt.rxBufferPool = newBufferPool(maxTargets, 2000)
 	go ctxt.listen()
-	ctxt.txBufferPool = newBufferPool(maxTargets*5, 64)
+	ctxt.berEncoderFactory = NewBerEncoderFactory()
 	ctxt.outboundQueue = make(chan SnmpMessage, maxTargets)
 	go ctxt.processOutboundQueue()
 	return
@@ -53,7 +51,6 @@ func (ctxt *SnmpContext) startReceiver(queueDepth int, port int) (err error) {
 	if ctxt.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: port}); err != nil {
 		return errors.New(fmt.Sprintf("Couldn't bind local port, error: %s", err))
 	}
-	ctxt.rxBufferPool = newBufferPool(queueDepth, 2000)
 	go ctxt.listen()
 	return nil
 }
@@ -127,31 +124,31 @@ func (tracker *requestTracker) trackRequest(req SnmpRequest) {
 }
 
 func (ctxt *SnmpContext) listen() {
-	buf := make([]byte, 0, 2000)
+	msg := make([]byte, 0, 2000)
 	for {
-		buf = buf[0:cap(buf)]
-		readLen, addr, err := ctxt.conn.ReadFromUDP(buf)
+		msg = msg[0:cap(msg)]
+		readLen, addr, err := ctxt.conn.ReadFromUDP(msg)
 		if err != nil {
 			fmt.Printf("Couldn't read message: %s\n", err)
 		} else {
-			ctxt.processIncomingMessage(buf[0:readLen], addr)
+			ctxt.processIncomingMessage(msg[0:readLen], addr)
 		}
 	}
 }
 
-func (ctxt *SnmpContext) processIncomingMessage(buf []byte, addr *net.UDPAddr) {
-	msg, err := unmarshalMsg(bytes.NewBuffer(buf))
+func (ctxt *SnmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
+	decodedMsg, err := decodeMsg(msg)
 	if err != nil {
-		fmt.Printf("Unmarshalling failed for message %v. Err: %s\n", buf, err)
+		fmt.Printf("Unmarshalling failed for message %v. Err: %s\n", msg, err)
 		return
 	}
-	msg.setAddress(addr)
+	decodedMsg.setAddress(addr)
 	fmt.Printf("Message: %#v", msg)
 }
 
 func (ctxt *SnmpContext) processOutboundQueue() {
 	for msg := range ctxt.outboundQueue {
-		ctxt.conn.WriteToUDP(msg.marshal(ctxt.txBufferPool), msg.getAddress())
+		ctxt.conn.WriteToUDP(msg.encode(ctxt.berEncoderFactory), msg.getAddress())
 	}
 }
 

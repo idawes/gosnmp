@@ -12,8 +12,8 @@ import (
 
 type RequestResponseTestSuite struct {
 	clientCtxt *SnmpContext
-	agent      *V2cAgent
-	logger     LoggerInterface
+	// agent      *V2cAgent
+	logger Logger
 }
 
 func NewRequestResponseTestSuite() (s *RequestResponseTestSuite, err error) {
@@ -34,7 +34,7 @@ func NewRequestResponseTestSuite() (s *RequestResponseTestSuite, err error) {
 		err = fmt.Errorf("Couldn't initialize logger: %s", err)
 		return
 	}
-	s.clientCtxt, err = NewClientContext(1000, logger)
+	s.clientCtxt, err = NewClientContext(1000, s.logger)
 	return
 }
 

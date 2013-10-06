@@ -1,28 +1,15 @@
 package snmp_go
 
 import (
-	"bytes"
+	. "github.com/idawes/ber_go"
 )
 
 type Varbind interface {
-	marshal(bufChain *bufferChain) (marshalledLen int)
+	encode(encoder *BerEncoder) (marshalledLen int)
 }
 
 type baseVarbind struct {
-	oid           []uint32
-	varbindHeader *bytes.Buffer
-	oidHeader     *bytes.Buffer
-	oidBody       *bytes.Buffer
-	valHeader     *bytes.Buffer
-	valBody       *bytes.Buffer
-}
-
-func (vb *baseVarbind) prepareMarshallingBuffers(bufChain *bufferChain) {
-	vb.varbindHeader = bufChain.addBufToTail()
-	vb.oidHeader = bufChain.addBufToTail()
-	vb.oidBody = bufChain.addBufToTail()
-	vb.valHeader = bufChain.addBufToTail()
-	vb.valBody = bufChain.addBufToTail()
+	oid []uint32
 }
 
 type IntegerVarbind struct { // type 0x02
@@ -30,11 +17,12 @@ type IntegerVarbind struct { // type 0x02
 	val int32
 }
 
-func (vb *IntegerVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
-	vb.prepareMarshallingBuffers(bufChain)
-	len := marshalInteger(vb.valHeader, vb.valBody, int64(vb.val))
-	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)
-	return len + marshalTypeAndLength(vb.varbindHeader, SEQUENCE, len)
+func (vb *IntegerVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
+	header := encoder.NewHeader(SEQUENCE)
+	len := encoder.EncodeObjectIdentifier(vb.oid)
+	len += encoder.EncodeInteger(int64(vb.val))
+	_, marshalledLen = header.SetContentLength(len)
+	return
 }
 
 type BitStringVarbind struct { // type 0x03
@@ -47,11 +35,12 @@ type OctetStringVarbind struct { // type 0x04
 	val []byte
 }
 
-func (vb *OctetStringVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
-	vb.prepareMarshallingBuffers(bufChain)
-	len := marshalOctetString(vb.valHeader, vb.valBody, vb.val)
-	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)
-	return len + marshalTypeAndLength(vb.varbindHeader, SEQUENCE, len)
+func (vb *OctetStringVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
+	header := encoder.NewHeader(SEQUENCE)
+	len := encoder.EncodeObjectIdentifier(vb.oid)
+	len += encoder.EncodeOctetString(vb.val)
+	_, marshalledLen = header.SetContentLength(len)
+	return
 }
 
 type NullVarbind struct { // type 0x05
@@ -64,11 +53,11 @@ func NewNullVarbind(oid []uint32) *NullVarbind {
 	return vb
 }
 
-func (vb *NullVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
-	vb.prepareMarshallingBuffers(bufChain)
-	len := marshalTypeAndLength(vb.valHeader, NULL, 0)
-	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)
-	return len + marshalTypeAndLength(vb.varbindHeader, SEQUENCE, len)
+func (vb *NullVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
+	header := encoder.NewHeader(SEQUENCE)
+	len := encoder.EncodeObjectIdentifier(vb.oid)
+	_, marshalledLen = header.SetContentLength(len)
+	return
 }
 
 type ObjectIdentifierVarbind struct { // type 0x06
@@ -76,11 +65,12 @@ type ObjectIdentifierVarbind struct { // type 0x06
 	val []uint32
 }
 
-func (vb *ObjectIdentifierVarbind) marshal(bufChain *bufferChain) (marshalledLen int) {
-	vb.prepareMarshallingBuffers(bufChain)
-	len := marshalObjectIdentifier(vb.valHeader, vb.valBody, vb.val)
-	len += marshalObjectIdentifier(vb.oidHeader, vb.oidBody, vb.oid)
-	return len + marshalTypeAndLength(vb.varbindHeader, SEQUENCE, len)
+func (vb *ObjectIdentifierVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
+	header := encoder.NewHeader(SEQUENCE)
+	len := encoder.EncodeObjectIdentifier(vb.oid)
+	len += encoder.EncodeObjectIdentifier(vb.val)
+	_, marshalledLen = header.SetContentLength(len)
+	return
 }
 
 type IpAddressVarbind struct { // type 0x40
