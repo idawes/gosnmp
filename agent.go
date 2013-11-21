@@ -4,14 +4,12 @@ type Agent struct {
 	SnmpContext
 }
 
-func NewAgent(queueDepth int) (agent *Agent, err error) {
-	return NewAgentWithPort(queueDepth, 161)
+func NewAgent(name string, maxTargets int, logger Logger) *Agent {
+	return NewAgentWithPort(name, maxTargets, 161, logger)
 }
 
-func NewAgentWithPort(queueDepth int, port int) (agent *Agent, err error) {
-	agent = new(Agent)
-	if err = agent.startReceiver(queueDepth, port); err != nil {
-		return nil, err
-	}
-	return
+func NewAgentWithPort(name string, maxTargets int, port int, logger Logger) *Agent {
+	agent := new(Agent)
+	agent.SnmpContext = *newContext(name, maxTargets, false, port, logger)
+	return agent
 }

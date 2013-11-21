@@ -11,7 +11,7 @@ import (
 )
 
 type RequestResponseTestSuite struct {
-	clientCtxt *SnmpContext
+	clientCtxt *Context
 	// agent      *V2cAgent
 	logger Logger
 }

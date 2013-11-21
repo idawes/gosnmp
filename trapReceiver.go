@@ -1,9 +1,5 @@
 package snmp_go
 
-func NewTrapReceiver(queueDepth int, port int) (ctxt *SnmpContext, err error) {
-	ctxt = new(SnmpContext)
-	if err = ctxt.startReceiver(queueDepth, port); err != nil {
-		return nil, err
-	}
-	return
+func NewTrapReceiver(name string, queueDepth int, port int, logger Logger) *SnmpContext {
+	return newContext(name, queueDepth, false, port, logger)
 }

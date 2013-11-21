@@ -1,15 +1,34 @@
 package snmp_go
 
 import (
-	. "github.com/idawes/ber_go"
+	"fmt"
 )
 
 type Varbind interface {
-	encode(encoder *BerEncoder) (marshalledLen int)
+	encodeValue(encoder *berEncoder) (marshalledLen int)
+	decodeValue(decoder *berDecoder, valueLength int) (err error)
+	getOid() ObjectIdentifier
+	setOid(oid ObjectIdentifier)
+}
+
+func (encoder *berEncoder) encodeVarbind(vb Varbind) (marshalledLen int) {
+	header := encoder.newHeader(SEQUENCE)
+	len := encoder.encodeObjectIdentifier(vb.getOid())
+	len += vb.encodeValue(encoder)
+	_, marshalledLen = header.setContentLength(len)
+	return
 }
 
 type baseVarbind struct {
-	oid []uint32
+	oid ObjectIdentifier
+}
+
+func (vb *baseVarbind) getOid() ObjectIdentifier {
+	return vb.oid
+}
+
+func (vb *baseVarbind) setOid(oid ObjectIdentifier) {
+	vb.oid = oid
 }
 
 type IntegerVarbind struct { // type 0x02
@@ -17,17 +36,41 @@ type IntegerVarbind struct { // type 0x02
 	val int32
 }
 
-func (vb *IntegerVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
-	header := encoder.NewHeader(SEQUENCE)
-	len := encoder.EncodeObjectIdentifier(vb.oid)
-	len += encoder.EncodeInteger(int64(vb.val))
-	_, marshalledLen = header.SetContentLength(len)
+func NewIntegerVarbind(oid ObjectIdentifier, val int32) *IntegerVarbind {
+	vb := new(IntegerVarbind)
+	vb.oid = oid
+	return vb
+}
+
+func (vb *IntegerVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
+	return encoder.encodeInteger(int64(vb.val))
+}
+
+func (vb *IntegerVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
+	vb.val, err = decoder.decodeInt32(valueLength)
 	return
 }
 
+// BitStringVarbind is the structure to use when you want an ASN.1 BIT STRING type. A bit string is padded up to the nearest byte in memory
+// and the number of valid bits is recorded. Padding bits will be zero
 type BitStringVarbind struct { // type 0x03
 	baseVarbind
-	val []byte
+	val *BitString
+}
+
+func NewBitStringVarbind(oid ObjectIdentifier, val *BitString) *BitStringVarbind {
+	vb := new(BitStringVarbind)
+	vb.oid = oid
+	return vb
+}
+
+func (vb *BitStringVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
+	return encoder.encodeBitString(vb.val)
+}
+
+func (vb *BitStringVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
+	vb.val, err = decoder.decodeBitString(valueLength)
+	return
 }
 
 type OctetStringVarbind struct { // type 0x04
@@ -35,11 +78,21 @@ type OctetStringVarbind struct { // type 0x04
 	val []byte
 }
 
-func (vb *OctetStringVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
-	header := encoder.NewHeader(SEQUENCE)
-	len := encoder.EncodeObjectIdentifier(vb.oid)
-	len += encoder.EncodeOctetString(vb.val)
-	_, marshalledLen = header.SetContentLength(len)
+func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind {
+	vb := new(OctetStringVarbind)
+	vb.oid = oid
+	return vb
+}
+
+func (vb *OctetStringVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
+	return encoder.encodeOctetString(vb.val)
+}
+
+func (vb *OctetStringVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
+	vb.val = make([]byte, valueLength)
+	if numRead, err := decoder.Read(vb.val); err != nil || numRead != valueLength {
+		return fmt.Errorf("Couldn't decode octet string of length %d. Number of bytes read from stream: %d, err: %s", valueLength, numRead, err)
+	}
 	return
 }
 
@@ -47,29 +100,42 @@ type NullVarbind struct { // type 0x05
 	baseVarbind
 }
 
-func NewNullVarbind(oid []uint32) *NullVarbind {
+func NewNullVarbind(oid ObjectIdentifier) *NullVarbind {
 	vb := new(NullVarbind)
 	vb.oid = oid
 	return vb
 }
 
-func (vb *NullVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
-	header := encoder.NewHeader(SEQUENCE)
-	len := encoder.EncodeObjectIdentifier(vb.oid)
-	_, marshalledLen = header.SetContentLength(len)
+func (vb *NullVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
+	return encoder.encodeNull()
+}
+
+func (vb *NullVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
+	if valueLength != 0 {
+		return fmt.Errorf("Non-zero value length found for NULL varbind: %d", valueLength)
+	}
 	return
 }
 
 type ObjectIdentifierVarbind struct { // type 0x06
 	baseVarbind
-	val []uint32
+	val ObjectIdentifier
 }
 
-func (vb *ObjectIdentifierVarbind) encode(encoder *BerEncoder) (marshalledLen int) {
-	header := encoder.NewHeader(SEQUENCE)
-	len := encoder.EncodeObjectIdentifier(vb.oid)
-	len += encoder.EncodeObjectIdentifier(vb.val)
-	_, marshalledLen = header.SetContentLength(len)
+func NewObjectIdentifierVarbind(oid ObjectIdentifier, val ObjectIdentifier) *ObjectIdentifierVarbind {
+	vb := new(ObjectIdentifierVarbind)
+	vb.oid = oid
+	return vb
+}
+
+func (vb *ObjectIdentifierVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
+	return encoder.encodeObjectIdentifier(vb.val)
+}
+
+func (vb *ObjectIdentifierVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
+	if valueLength != 0 {
+		return fmt.Errorf("Non-zero value length found for NULL varbind: %d", valueLength)
+	}
 	return
 }
 
@@ -78,9 +144,21 @@ type IpAddressVarbind struct { // type 0x40
 	val [4]byte
 }
 
+func NewIpAddressVarbind(oid ObjectIdentifier) *IpAddressVarbind {
+	vb := new(IpAddressVarbind)
+	vb.oid = oid
+	return vb
+}
+
 type Counter32Varbind struct { // type 0x41
 	baseVarbind
 	val uint32
+}
+
+func NewCounter32Varbind(oid ObjectIdentifier) *Counter32Varbind {
+	vb := new(Counter32Varbind)
+	vb.oid = oid
+	return vb
 }
 
 type Gauge32Varbind struct { // type 0x42
@@ -88,9 +166,21 @@ type Gauge32Varbind struct { // type 0x42
 	val uint32
 }
 
+func NewGauge32Varbind(oid ObjectIdentifier) *Gauge32Varbind {
+	vb := new(Gauge32Varbind)
+	vb.oid = oid
+	return vb
+}
+
 type TimeTicksVarbind struct { // type 0x43
 	baseVarbind
 	val uint32
+}
+
+func NewTimeTicksVarbind(oid ObjectIdentifier) *TimeTicksVarbind {
+	vb := new(TimeTicksVarbind)
+	vb.oid = oid
+	return vb
 }
 
 type OpaqueVarbind struct { // type 0x44
@@ -98,9 +188,21 @@ type OpaqueVarbind struct { // type 0x44
 	val []byte
 }
 
+func NewOpaqueVarbind(oid ObjectIdentifier) *OpaqueVarbind {
+	vb := new(OpaqueVarbind)
+	vb.oid = oid
+	return vb
+}
+
 type NsapAddressVarbind struct { // type 0x45
 	baseVarbind
 	val [6]byte
+}
+
+func NewNsapAddressVarbind(oid ObjectIdentifier) *NsapAddressVarbind {
+	vb := new(NsapAddressVarbind)
+	vb.oid = oid
+	return vb
 }
 
 type Counter64Varbind struct { // type 0x46
@@ -108,7 +210,70 @@ type Counter64Varbind struct { // type 0x46
 	val uint64
 }
 
-type Uinteger32Varbind struct { // type 0x47
+func NewCounter64Varbind(oid ObjectIdentifier) *Counter64Varbind {
+	vb := new(Counter64Varbind)
+	vb.oid = oid
+	return vb
+}
+
+type Uint32Varbind struct { // type 0x47
 	baseVarbind
 	val uint32
+}
+
+func NewUint32Varbind(oid ObjectIdentifier) *Uint32Varbind {
+	vb := new(Uint32Varbind)
+	vb.oid = oid
+	return vb
+}
+
+func decodeVarbind(decoder *berDecoder) (varbind Varbind, err error) {
+	varbindHeaderType, varbindLength, err := decoder.decodeHeader()
+	if err != nil {
+		return nil, fmt.Errorf("Unable to decode varbind header - err: %s", err)
+	}
+	startDecoderLen := decoder.Len()
+	if varbindHeaderType != SEQUENCE {
+		return nil, fmt.Errorf("Invalid varbind header type 0x%x - not 0x%x", varbindHeaderType, SEQUENCE)
+	}
+	oid, err := decoder.decodeObjectIdentifierWithHeader()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to decode object identifier - err: %s", err)
+	}
+	valueType, value, err := decoder.decodeValue()
+	if err != nil {
+		return nil, fmt.Errorf("Unable to decode value header - err: %s", err)
+	}
+	switch valueType {
+	case INTEGER:
+		varbind = NewIntegerVarbind(oid, value.(int32))
+	case BIT_STRING:
+		varbind = NewBitStringVarbind(oid, value.(*BitString))
+	case OCTET_STRING:
+		varbind = NewOctetStringVarbind(oid, value.(OctectString))
+	case NULL:
+		varbind = NewNullVarbind(oid)
+	case OBJECT_IDENTIFIER:
+		varbind = NewObjectIdentifierVarbind(oid, value.(ObjectIdentifier))
+	// case IP_ADDRESS:
+	// 	varbind = NewIpAddressVarbind(oid)
+	// case COUNTER_32:
+	// 	varbind = NewCounter32Varbind(oid)
+	// case GAUGE_32:
+	// 	varbind = NewGauge32Varbind(oid)
+	// case TIME_TICKS:
+	// 	varbind = NewTimeTicksVarbind(oid)
+	// case OPAQUE:
+	// 	varbind = NewOpaqueVarbind(oid)
+	// case COUNTER_64:
+	// 	varbind = NewCounter64Varbind(oid)
+	// case UINT_32:
+	// 	varbind = NewUint32Varbind(oid)
+	default:
+		return nil, fmt.Errorf("Unknown value type 0x%x", valueType)
+	}
+	if startDecoderLen-decoder.Len() != varbindLength {
+		return nil, fmt.Errorf("Decoding varbind consumed too many bytes. Expected: %d, actual: %d", varbindLength, startDecoderLen-decoder.Len())
+	}
+	return
 }

@@ -1,14 +1,12 @@
 package snmp_go
 
 import (
-	"errors"
 	"fmt"
-	. "github.com/idawes/ber_go"
 	"net"
 	"time"
 )
 
-type PDUType byte
+type PDUType snmpBlockType
 
 const (
 	GET_REQUEST      PDUType = 0xa0
@@ -38,23 +36,28 @@ func (pduType *PDUType) String() string {
 }
 
 type SnmpMessage interface {
-	encode(encoderFactory *BerEncoderFactory) []byte
+	encode(encoderFactory *berEncoderFactory) []byte
+	decode(decoder *berDecoder) (err error)
 	getAddress() *net.UDPAddr
 	setAddress(*net.UDPAddr)
+	getVersion() SnmpVersion
+	setVersion(version SnmpVersion)
+	getPduType() PDUType
+	setPduType(pduType PDUType)
 	GetLoggingId() string
 }
 
 type SnmpRequest interface {
 	SnmpMessage
-	AddOid(oid []uint32)
-	AddOids(oids [][]uint32)
+	AddOid(oid ObjectIdentifier)
+	AddOids(oids []ObjectIdentifier)
 	GetFlightTime() time.Duration
-	getResponseHandler() chan<- SnmpRequest
+	wait()
+	notify()
 	setRequestId(requestId uint32)
 	getRequestId() uint32
-	resetRetryCount()
 	isRetryRequired() bool
-	startTimer(expiredMsgChannel chan<- SnmpRequest)
+	startTimer(func(SnmpRequest))
 	stopTimer()
 	setResponse(resp SnmpResponse)
 	setError(err error)
@@ -75,6 +78,22 @@ type baseMsg struct {
 	address  *net.UDPAddr
 }
 
+func (msg *baseMsg) getVersion() SnmpVersion {
+	return msg.version
+}
+
+func (msg *baseMsg) setVersion(version SnmpVersion) {
+	msg.version = version
+}
+
+func (msg *baseMsg) getPduType() PDUType {
+	return msg.pduType
+}
+
+func (msg *baseMsg) setPduType(pduType PDUType) {
+	msg.pduType = pduType
+}
+
 func (msg *baseMsg) getAddress() *net.UDPAddr {
 	return msg.address
 }
@@ -83,61 +102,92 @@ func (msg *baseMsg) setAddress(addr *net.UDPAddr) {
 	msg.address = addr
 }
 
+func (msg *baseMsg) decodeVarbinds(decoder *berDecoder) (err error) {
+	varbindsListType, varbindsListLength, err := decoder.decodeHeader()
+	if err != nil {
+		return fmt.Errorf("Unable to decode varbinds list header - err: %s", err)
+	}
+	if varbindsListType != SEQUENCE {
+		return fmt.Errorf("Invalid message header type 0x%x - not 0x%x", varbindsListType, SEQUENCE)
+	}
+	if varbindsListLength != decoder.Len() {
+		return fmt.Errorf("Encoded varbinds list length %d doesn't match remaining msg length %d", varbindsListLength, decoder.Len())
+	}
+	varbindCount := 1
+	for ; ; varbindCount++ {
+		varbind, err := decodeVarbind(decoder)
+		if err != nil {
+			return fmt.Errorf("Decoding of varbind %d failed - err: %s", varbindCount, err)
+		}
+		msg.varbinds = append(msg.varbinds, varbind)
+	}
+}
+
 // base type for all v1/v2c messages
 type communityMessage struct {
 	baseMsg
 	community string
 }
 
-func decodeCommunityMessage(decoder *BerDecoder, version SnmpVersion) (msg SnmpMessage, err error) {
-	communityBytes, err := decoder.DecodeOctetString()
+type snmpCommunityMessage interface {
+	SnmpMessage
+	getCommunity() string
+	setCommunity(community string)
+}
+
+func (msg *communityMessage) getCommunity() string {
+	return msg.community
+}
+
+func (msg *communityMessage) setCommunity(community string) {
+	msg.community = community
+}
+
+func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (msg snmpCommunityMessage, err error) {
+	communityBytes, err := decoder.decodeOctetStringWithHeader()
 	if err != nil {
 		return nil, err
 	}
 	community := string(communityBytes)
-	rawPduType, pduLength, err := decoder.DecodeHeader()
+	rawPduType, pduLength, err := decoder.decodeHeader()
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Unabled to decode pdu header - err: %s", err))
+		return nil, fmt.Errorf("Unabled to decode pdu header - err: %s", err)
 	}
 	if pduLength != decoder.Len() {
-		return nil, errors.New(fmt.Sprintf("Encoded pdu length %d doesn't match remaining msg length %d", pduLength, decoder.Len()))
+		return nil, fmt.Errorf("Encoded pdu length %d doesn't match remaining msg length %d", pduLength, decoder.Len())
 	}
 	pduType := PDUType(rawPduType)
 	switch pduType {
-	case GET_REQUEST, GET_RESPONSE, GET_NEXT_REQUEST, SET_REQUEST:
-		_msg := new(communityRequestResponse)
-		_msg.version = version
-		_msg.community = community
-		_msg.pduType = pduType
-		_msg.decode(decoder)
-		msg = _msg
+	case GET_REQUEST, GET_NEXT_REQUEST, SET_REQUEST:
+		msg = new(CommunityRequest)
+	case GET_RESPONSE:
+		msg = new(CommunityResponse)
 	case GET_BULK_REQUEST, INFORM_REQUEST, V2_TRAP, REPORT:
 		if version == Version1 {
-			return nil, errors.New(fmt.Sprintf("Invalid PDU type for SNMP version 1 message: %s", pduType))
+			return nil, fmt.Errorf("Invalid PDU type for SNMP version 1 message: %s", pduType)
 		}
-		_msg := new(communityRequestResponse)
-		_msg.version = version
-		_msg.community = community
-		_msg.pduType = pduType
-		_msg.decode(decoder)
-		msg = _msg
+		switch pduType {
+		case GET_BULK_REQUEST:
+			msg = new(CommunityRequest)
+		case INFORM_REQUEST, V2_TRAP, REPORT:
+			return nil, fmt.Errorf("PDU type %d not supported yet", pduType)
+		}
 	case V1_TRAP:
 		if version != Version1 {
-			return nil, errors.New(fmt.Sprintf("Invalid version for V1 Trap message: %s", pduType, version))
+			return nil, fmt.Errorf("Invalid version for V1 Trap message: %s", version)
 		}
-		_msg := new(V1Trap)
-		_msg.version = version
-		_msg.community = community
-		_msg.pduType = V1_TRAP
-		_msg.decode(decoder)
-		msg = _msg
+		msg = new(V1Trap)
 	default:
-		return nil, errors.New(fmt.Sprintf("Unsupported PDU type: 0x%x", rawPduType))
+		return nil, fmt.Errorf("Unsupported PDU type: 0x%x", rawPduType)
 	}
+	msg.setVersion(version)
+	msg.setCommunity(community)
+	msg.setPduType(pduType)
+	msg.decode(decoder)
 	return
 }
 
-// base type for all v1/v2c messages other than v1Trap
+// base type for all v1/v2c request/response messages
 type communityRequestResponse struct {
 	communityMessage
 	requestId uint32
@@ -157,52 +207,66 @@ func (msg *communityRequestResponse) getRequestId() uint32 {
 	return msg.requestId
 }
 
-func (msg *communityRequestResponse) encode(encoderFactory *BerEncoderFactory) []byte {
-	encoder := encoderFactory.NewBerEncoder()
-	defer encoder.Destroy()
-	msgHeader := encoder.NewHeader(SEQUENCE)
-	headerFieldsLen := encoder.EncodeInteger(int64(msg.version))
-	headerFieldsLen += encoder.EncodeOctetString([]byte(msg.community))
-	headerFieldsLen += encoder.EncodeInteger(int64(msg.requestId))
-	headerFieldsLen += encoder.EncodeInteger(int64(msg.errorVal))
-	headerFieldsLen += encoder.EncodeInteger(int64(msg.errorIdx))
-	pduHeader := encoder.NewHeader(byte(msg.pduType))
-	varbindsListHeader := encoder.NewHeader(SEQUENCE)
+func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) []byte {
+	encoder := encoderFactory.newBerEncoder()
+	defer encoder.destroy()
+	msgHeader := encoder.newHeader(SEQUENCE)
+	headerFieldsLen := encoder.encodeInteger(int64(msg.version))
+	headerFieldsLen += encoder.encodeOctetString([]byte(msg.community))
+	pduHeader := encoder.newHeader(snmpBlockType(msg.pduType))
+	pduControlFieldsLen := encoder.encodeInteger(int64(msg.requestId))
+	pduControlFieldsLen += encoder.encodeInteger(int64(msg.errorVal))
+	pduControlFieldsLen += encoder.encodeInteger(int64(msg.errorIdx))
+	varbindsListHeader := encoder.newHeader(SEQUENCE)
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += varbind.encode(encoder)
+		varbindsLen += encoder.encodeVarbind(varbind)
 	}
-	_, pduLen := varbindsListHeader.SetContentLength(varbindsLen)
-	_, msgLen := pduHeader.SetContentLength(pduLen)
-	msgLen += headerFieldsLen
-	msgHeader.SetContentLength(msgLen)
-	return encoder.Serialize()
+	_, varbindsListLen := varbindsListHeader.setContentLength(varbindsLen)
+	_, pduLen := pduHeader.setContentLength(pduControlFieldsLen + varbindsListLen)
+	msgHeader.setContentLength(headerFieldsLen + pduLen)
+	return encoder.serialize()
 }
 
-func (msg *communityRequestResponse) decode(decoder *BerDecoder) (err error) {
+func (msg *communityRequestResponse) decode(decoder *berDecoder) (err error) {
+	msg.requestId, err = decoder.decodeUint32WithHeader()
+	msg.errorVal, err = decoder.decodeInt32WithHeader()
+	msg.errorIdx, err = decoder.decodeInt32WithHeader()
+	for varbindCount := 0; decoder.Len() != 0; varbindCount++ {
+		vb, err := decodeVarbind(decoder)
+		if err != nil {
+			return fmt.Errorf("Couldn't decode varbind %d, err: %s", varbindCount+1, err)
+		}
+		msg.varbinds = append(msg.varbinds, vb)
+	}
 	return
 }
 
 type CommunityRequest struct {
 	communityRequestResponse
-	response        SnmpResponse
-	timeoutSeconds  int
-	retries         int
-	retryCount      int
-	timer           *time.Timer
-	timeoutChan     chan<- SnmpRequest
-	responseHandler chan<- SnmpRequest
-	flightStartTime time.Time
-	flightTime      time.Duration
-	err             error
+	response         SnmpResponse
+	timeoutSeconds   int
+	retriesRemaining int
+	timer            *time.Timer
+	timeoutFunc      func(SnmpRequest)
+	requestDoneChan  chan bool
+	flightStartTime  time.Time
+	flightTime       time.Duration
+	err              error
+}
+
+func newCommunityRequest() *CommunityRequest {
+	req := new(CommunityRequest)
+	req.requestDoneChan = make(chan bool)
+	return req
 }
 
 func (req *CommunityRequest) GetFlightTime() time.Duration {
 	return req.flightTime
 }
 
-func (req *CommunityRequest) startTimer(timeoutChan chan<- SnmpRequest) {
-	req.timeoutChan = timeoutChan
+func (req *CommunityRequest) startTimer(timeoutFunc func(SnmpRequest)) {
+	req.timeoutFunc = timeoutFunc
 	req.flightStartTime = time.Now()
 	req.timer = time.AfterFunc(time.Duration(req.timeoutSeconds)*time.Second, req.handleTimeout)
 }
@@ -214,23 +278,22 @@ func (req *CommunityRequest) stopTimer() {
 
 func (req *CommunityRequest) handleTimeout() {
 	req.flightTime = time.Since(req.flightStartTime)
-	req.timeoutChan <- req
-}
-
-func (req *CommunityRequest) resetRetryCount() {
-	req.retryCount = 0
+	req.timeoutFunc(req)
 }
 
 func (req *CommunityRequest) isRetryRequired() bool {
-	req.retryCount += 1
-	return req.retryCount <= req.retries
+	if req.retriesRemaining > 0 {
+		req.retriesRemaining--
+		return true
+	}
+	return false
 }
 
-func (req *CommunityRequest) AddOid(oid []uint32) {
+func (req *CommunityRequest) AddOid(oid ObjectIdentifier) {
 	req.varbinds = append(req.varbinds, NewNullVarbind(oid))
 }
 
-func (req *CommunityRequest) AddOids(oids [][]uint32) {
+func (req *CommunityRequest) AddOids(oids []ObjectIdentifier) {
 	temp := make([]Varbind, len(oids))
 	for i, oid := range oids {
 		temp[i] = NewNullVarbind(oid)
@@ -238,8 +301,12 @@ func (req *CommunityRequest) AddOids(oids [][]uint32) {
 	req.varbinds = append(req.varbinds, temp...)
 }
 
-func (req *CommunityRequest) getResponseHandler() chan<- SnmpRequest {
-	return req.responseHandler
+func (req *CommunityRequest) wait() {
+	<-req.requestDoneChan
+}
+
+func (req *CommunityRequest) notify() {
+	req.requestDoneChan <- true
 }
 
 func (req *CommunityRequest) setResponse(resp SnmpResponse) {
@@ -256,6 +323,10 @@ func (req *CommunityRequest) GetResponse() (resp SnmpResponse) {
 
 func (req *CommunityRequest) GetError() (err error) {
 	return req.err
+}
+
+func (req *CommunityRequest) GetRequestType() (requestType PDUType) {
+	return req.pduType
 }
 
 type CommunityResponse struct {
@@ -275,42 +346,42 @@ func (msg *V1Trap) GetLoggingId() string {
 	return fmt.Sprintf("%s:%d", msg.pduType, msg.timeStamp)
 }
 
-func (msg *V1Trap) encode(encoderFactory *BerEncoderFactory) []byte {
-	encoder := encoderFactory.NewBerEncoder()
-	defer encoder.Destroy()
-	msgHeader := encoder.NewHeader(SEQUENCE)
-	headerFieldsLen := encoder.EncodeInteger(int64(msg.version))
-	headerFieldsLen += encoder.EncodeOctetString([]byte(msg.community))
-	pduHeader := encoder.NewHeader(byte(msg.pduType))
-	varbindsListHeader := encoder.NewHeader(SEQUENCE)
+func (msg *V1Trap) encode(encoderFactory *berEncoderFactory) []byte {
+	encoder := encoderFactory.newBerEncoder()
+	defer encoder.destroy()
+	msgHeader := encoder.newHeader(SEQUENCE)
+	headerFieldsLen := encoder.encodeInteger(int64(msg.version))
+	headerFieldsLen += encoder.encodeOctetString([]byte(msg.community))
+	pduHeader := encoder.newHeader(snmpBlockType(msg.pduType))
+	varbindsListHeader := encoder.newHeader(SEQUENCE)
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += varbind.encode(encoder)
+		varbindsLen += encoder.encodeVarbind(varbind)
 	}
-	_, pduLen := varbindsListHeader.SetContentLength(varbindsLen)
-	_, msgLen := pduHeader.SetContentLength(pduLen)
+	_, pduLen := varbindsListHeader.setContentLength(varbindsLen)
+	_, msgLen := pduHeader.setContentLength(pduLen)
 	msgLen += headerFieldsLen
-	msgHeader.SetContentLength(msgLen)
-	return encoder.Serialize()
+	msgHeader.setContentLength(msgLen)
+	return encoder.serialize()
 }
 
-func (msg *V1Trap) decode(decoder *BerDecoder) (err error) {
+func (msg *V1Trap) decode(decoder *berDecoder) (err error) {
 	return
 }
 
 func decodeMsg(rawMsg []byte) (decodedMsg SnmpMessage, err error) {
-	decoder := NewBerDecoder(rawMsg)
-	msgType, length, err := decoder.DecodeHeader()
+	decoder := newBerDecoder(rawMsg)
+	msgType, length, err := decoder.decodeHeader()
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Unable to decode message header - err: %s", err))
+		return nil, fmt.Errorf("Unable to decode message header - err: %s", err)
 	}
 	if msgType != SEQUENCE {
-		return nil, errors.New(fmt.Sprintf("Invalid message header type 0x%x - not 0x%x", msgType, SEQUENCE))
+		return nil, fmt.Errorf("Invalid message header type 0x%x - not 0x%x", msgType, SEQUENCE)
 	}
 	if length != decoder.Len() {
-		return nil, errors.New(fmt.Sprintf("Invalid message length - expected %d, got %d", length, decoder.Len()))
+		return nil, fmt.Errorf("Invalid message length - expected %d, got %d", length, decoder.Len())
 	}
-	rawVersion, err := decoder.DecodeInteger()
+	rawVersion, err := decoder.decodeIntegerWithHeader()
 	if err != nil {
 		return nil, err
 	}
@@ -319,6 +390,6 @@ func decodeMsg(rawMsg []byte) (decodedMsg SnmpMessage, err error) {
 	case Version1, Version2c:
 		return decodeCommunityMessage(decoder, version)
 	default:
-		return nil, errors.New(fmt.Sprintf("Unsupported snmp version code 0x%x", version))
+		return nil, fmt.Errorf("Unsupported snmp version code 0x%x", version)
 	}
 }
