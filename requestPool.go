@@ -6,7 +6,7 @@ type requestPool struct {
 	logger           Logger
 }
 
-// newCommunityRequestPool creates an empty request pool with space to hold n requests
+// newRequestPool creates an empty request pool with space to hold n requests
 func newRequestPool(n int, createNewRequest func() SnmpRequest, logger Logger) *requestPool {
 	pool := new(requestPool)
 	pool.freeList = make(chan SnmpRequest, n)
