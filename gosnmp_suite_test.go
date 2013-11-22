@@ -1,16 +1,16 @@
-package snmp_go_test
+package gosnmp_test
 
 import (
 	"fmt"
 	"github.com/cihub/seelog"
-	. "github.com/idawes/snmp_go"
+	. "github.com/idawes/gosnmp"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"os"
 	"testing"
 )
 
-func TestSnmp_go(t *testing.T) {
+func TestGosnmp(t *testing.T) {
 	RegisterFailHandler(Fail)
 	pid := os.Getpid()
 	loggingConfig := fmt.Sprintf(`
@@ -36,6 +36,6 @@ func TestSnmp_go(t *testing.T) {
 	}()
 	setupV2cClientTest(logger, testIdGenerator)
 	SetupLowLevelContextTest(logger, testIdGenerator)
-	RunSpecs(t, "Snmp_go Suite")
+	RunSpecs(t, "gosnmp Suite")
 	logger.Close()
 }

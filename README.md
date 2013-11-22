@@ -1,2 +1,2 @@
-snmp_go
+gosnmp
 =======

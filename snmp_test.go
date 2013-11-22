@@ -1,4 +1,4 @@
-package snmp_go
+package gosnmp
 
 import (
 	"github.com/cihub/seelog"

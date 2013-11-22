@@ -1,4 +1,4 @@
-package snmp_go
+package gosnmp
 
 func (encoder *berEncoder) encodeNull() (encodedLength int) {
 	h := encoder.newHeader(NULL)

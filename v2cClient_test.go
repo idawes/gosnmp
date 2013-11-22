@@ -1,9 +1,9 @@
-package snmp_go_test
+package gosnmp_test
 
 import (
 	"fmt"
 	"github.com/cihub/seelog"
-	snmp "github.com/idawes/snmp_go"
+	snmp "github.com/idawes/gosnmp"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"math"

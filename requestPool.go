@@ -1,4 +1,4 @@
-package snmp_go
+package gosnmp
 
 type requestPool struct {
 	freeList         chan SnmpRequest
