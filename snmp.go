@@ -214,6 +214,7 @@ const (
 type snmpContextStatRequest struct {
 	allStats     bool
 	singleStat   SnmpContextStatType
+	bin          uint8
 	responseChan chan interface{}
 }
 
@@ -223,27 +224,62 @@ func (ctxt *SnmpContext) startStatTracker() {
 	go ctxt.trackStats()
 }
 
+type SnmpStatsBin struct {
+	Stats      map[SnmpContextStatType]int
+	NumSeconds int
+}
+
+func newSnmpStatsBin() *SnmpStatsBin {
+	return &SnmpStatsBin{make(map[SnmpContextStatType]int), 0}
+}
+
+func (bin *SnmpStatsBin) copy() *SnmpStatsBin {
+	binCopy := newSnmpStatsBin()
+	for k, v := range bin.Stats {
+		binCopy.Stats[k] = v
+	}
+	binCopy.NumSeconds = bin.NumSeconds
+	return binCopy
+}
+
 func (ctxt *SnmpContext) trackStats() {
-	stats := make(map[SnmpContextStatType]int)
+	fifteenMinuteBins := make([]*SnmpStatsBin, 97) // 96 fifteen minute bins in a day, plus one for the current bin
+	fifteenMinuteBins[0] = newSnmpStatsBin()
+	ticker := time.NewTicker(1 * time.Second)
+	nextRollover := int(time.Now().Sub(time.Now().Truncate(15 * time.Minute)).Seconds())
 	ctxt.Debugf("Ctxt %s: stats tracker initializing", ctxt.name)
 	for {
 		select {
 		case statType := <-ctxt.statIncrementNotifications:
-			stats[statType] += 1
+			fifteenMinuteBins[0].Stats[statType] += 1
 
 		case req := <-ctxt.statRequests:
 			ctxt.Debugf("Ctxt %s: got stats request", ctxt.name)
+			if req.bin >= uint8(len(fifteenMinuteBins)) {
+				req.responseChan <- nil
+			}
+			statsBin := fifteenMinuteBins[req.bin]
+			if statsBin.Stats == nil {
+				req.responseChan <- nil
+			}
 			if req.allStats {
-				statsCopy := make(map[SnmpContextStatType]int, len(stats))
-				for k, v := range stats {
-					statsCopy[k] = v
-				}
-				req.responseChan <- statsCopy
+				req.responseChan <- statsBin.copy()
 			} else {
-				req.responseChan <- stats[req.singleStat]
+				req.responseChan <- statsBin.Stats[req.singleStat]
+			}
+
+		case <-ticker.C:
+			fifteenMinuteBins[0].NumSeconds++
+			if fifteenMinuteBins[0].NumSeconds == nextRollover {
+				for idx := len(fifteenMinuteBins); idx > 0; idx-- {
+					fifteenMinuteBins[idx] = fifteenMinuteBins[idx-1]
+				}
+				fifteenMinuteBins[0] = newSnmpStatsBin()
+				nextRollover = int(15 * time.Minute.Seconds())
 			}
 
 		case <-ctxt.internalShutdownNotification:
+			ticker.Stop()
 			ctxt.Debugf("Ctxt %s: stats tracker shutting down due to SnmpContext shutdown", ctxt.name)
 			return
 		}
@@ -254,23 +290,29 @@ func (ctxt *SnmpContext) incrementStat(statType SnmpContextStatType) {
 	ctxt.statIncrementNotifications <- statType
 }
 
-func (ctxt *SnmpContext) GetStat(statType SnmpContextStatType) (statVal int, err error) {
+func (ctxt *SnmpContext) GetStat(statType SnmpContextStatType, bin uint8) (int, error) {
 	responseChan := make(chan interface{})
-	ctxt.statRequests <- snmpContextStatRequest{singleStat: statType, responseChan: responseChan}
+	ctxt.statRequests <- snmpContextStatRequest{singleStat: statType, bin: bin, responseChan: responseChan}
 	resp := <-responseChan
+	if resp == nil {
+		return 0, fmt.Errorf("The requested bin (%d) is not available", bin)
+	}
 	statVal, ok := resp.(int)
 	if !ok {
 		ctxt.Errorf("Couldn't cast response %#v to int", resp)
 		return 0, fmt.Errorf("Internal error, couldn't retrieve stat")
 	}
-	return
+	return statVal, nil
 }
 
-func (ctxt *SnmpContext) GetStats() (map[SnmpContextStatType]int, error) {
+func (ctxt *SnmpContext) GetStatsBin(bin uint8) (*SnmpStatsBin, error) {
 	responseChan := make(chan interface{})
-	ctxt.statRequests <- snmpContextStatRequest{allStats: true, responseChan: responseChan}
+	ctxt.statRequests <- snmpContextStatRequest{allStats: true, bin: bin, responseChan: responseChan}
 	resp := <-responseChan
-	stats, ok := resp.(map[SnmpContextStatType]int)
+	if resp == nil {
+		return nil, fmt.Errorf("The requested bin (%d) is not available", bin)
+	}
+	stats, ok := resp.(*SnmpStatsBin)
 	if !ok {
 		ctxt.Errorf("Couldn't cast response %#v to map", resp)
 		return nil, fmt.Errorf("Internal error, couldn't retrieve stat")
