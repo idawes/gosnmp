@@ -8,6 +8,7 @@ import (
 
 type berEncoderFactory struct {
 	bufPool *bufferPool
+	logger  Logger
 }
 
 func newBerEncoderFactory(logger Logger) *berEncoderFactory {
@@ -15,18 +16,21 @@ func newBerEncoderFactory(logger Logger) *berEncoderFactory {
 	// Encoders are typically used and destroyed in short order, so we should only have a few active at any time. Each encoder may use quite a few small
 	// temporary buffers during the encoding process though. Here we're setting things up for NumCpu * 2 encoders to be able to use 200 buffers each.
 	factory.bufPool = newBufferPool(runtime.NumCPU()*2*200, 64, logger)
+	factory.logger = logger
 	return factory
 }
 
 type berEncoder struct {
 	bufChain *list.List
 	bufPool  *bufferPool
+	logger   Logger
 }
 
 func (factory *berEncoderFactory) newBerEncoder() *berEncoder {
 	encoder := new(berEncoder)
 	encoder.bufChain = list.New()
 	encoder.bufPool = factory.bufPool
+	encoder.logger = factory.logger
 	return encoder
 }
 
@@ -59,26 +63,26 @@ func (e *berEncoder) append() *bytes.Buffer {
 }
 
 type BerHeader struct {
-	bytes.Buffer
+	buf *bytes.Buffer
 }
 
 func (encoder *berEncoder) newHeader(blockType snmpBlockType) *BerHeader {
-	h := BerHeader{*encoder.append()}
-	h.WriteByte(byte(blockType))
+	h := BerHeader{buf: encoder.append()}
+	h.buf.WriteByte(byte(blockType))
 	return &h
 }
 
 func (h *BerHeader) setContentLength(contentLength int) (headerLength int, blockLength int) {
 	if contentLength < 127 {
-		h.WriteByte(byte(contentLength))
+		h.buf.WriteByte(byte(contentLength))
 	} else {
 		n := calculateLengthLen(contentLength)
-		h.WriteByte(0x80 | n)
+		h.buf.WriteByte(0x80 | n)
 		for ; n > 0; n-- {
-			h.WriteByte(byte(contentLength >> uint((n-1)*8)))
+			h.buf.WriteByte(byte(contentLength >> uint((n-1)*8)))
 		}
 	}
-	headerLength = h.Len()
+	headerLength = h.buf.Len()
 	blockLength = headerLength + contentLength
 	return
 }
