@@ -66,21 +66,24 @@ func (decoder *berDecoder) decodeBitString(numBytes int) (*BitString, error) {
 		return nil, fmt.Errorf("Invalid length for bit string: %d", numBytes)
 	}
 	if numBytes > decoder.Len() {
-		return nil, fmt.Errorf("Length %d for bitstring exceeds available number of bytes %d", numBytes, decoder.Len())
+		return nil, fmt.Errorf("Length %d for bitstring exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}
+	paddingBitsPos := decoder.pos
 	numPaddingBits, err := decoder.ReadByte()
 	if err != nil {
-		return nil, fmt.Errorf("Couldn't read number of padding bits - err: %s", err)
+		return nil, fmt.Errorf("Couldn't read number of padding bits for bitstring at pos %d - err: %s", decoder.pos, err)
 	}
+	decoder.pos++
 	if numPaddingBits < 0 || numPaddingBits > 7 {
-		return nil, fmt.Errorf("Invalid number of padding bits: %d", numPaddingBits)
+		return nil, fmt.Errorf("Invalid number of padding bits %d at pos %d", numPaddingBits, paddingBitsPos)
 	}
 	val := new(BitString)
 	val.bytes = make([]byte, numBytes-1)
 	numRead, err := decoder.Read(val.bytes)
 	if err != nil || numRead != numBytes-1 {
-		return nil, fmt.Errorf("Couldn't read bit string of length %d. Number of bytes read: %d", numBytes, numRead)
+		return nil, fmt.Errorf("Could only read %d of %d bytes for bitstring at pos %d", numRead, numBytes, decoder.pos)
 	}
+	decoder.pos += numRead
 	val.bitLength = ((numBytes - 1) * 8) - int(numPaddingBits)
 	return val, nil
 }

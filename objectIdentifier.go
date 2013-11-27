@@ -37,49 +37,53 @@ func (encoder *berEncoder) encodeObjectIdentifier(oid ObjectIdentifier) int {
 }
 
 func (decoder *berDecoder) decodeObjectIdentifierWithHeader() (ObjectIdentifier, error) {
+	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
 		return nil, err
 	}
 	if blockType != OBJECT_IDENTIFIER {
-		return nil, fmt.Errorf("Expecting type OBJECT_IDENTIFIER (0x%x), found 0x%x", OBJECT_IDENTIFIER, blockType)
+		return nil, fmt.Errorf("Expecting type OBJECT_IDENTIFIER (0x%x), found 0x%x at pos %d", OBJECT_IDENTIFIER, blockType, startingPos)
 	}
 	return decoder.decodeObjectIdentifier(blockLength)
 }
 
 func (decoder *berDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifier, error) {
 	if numBytes > decoder.Len() {
-		return nil, fmt.Errorf("Length %d for object identifier exceeds available number of bytes %d", numBytes, decoder.Len())
+		return nil, fmt.Errorf("Length %d for object identifier exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}
 
 	// In the worst case, we get two elements from the first byte (which is encoded differently) and then every varint is a single byte long
 	oid := make(ObjectIdentifier, numBytes+1)
 
+	startingPos := decoder.pos
 	// The first byte is 40*value1 + value2
 	firstByte, err := decoder.ReadByte()
 	if err != nil {
-		return nil, fmt.Errorf("Couldn't read first byte of object identifier, err: %s", err)
+		return nil, fmt.Errorf("Couldn't read first byte of object identifier at pos %d, err: %s", err, decoder.pos)
 	}
+	decoder.pos++
 	oid[0] = uint32(firstByte) / 40
 	oid[1] = uint32(firstByte) % 40
 	numVals := 2
-	endLen := decoder.Len() - numBytes // make sure we don't pull too many bytes out of the decoder
 	for ; ; numVals++ {
+		fmt.Println(numVals, decoder.pos, startingPos, numBytes)
+		identifierPos := decoder.pos
 		tval, err := decoder.decodeBase128Int()
 		if err != nil {
 			return nil, fmt.Errorf("Couldn't decode identifier at level %d, err: %s", numVals, err)
 		}
 		if tval < 0 || tval > math.MaxUint32 {
-			return nil, fmt.Errorf("Invalid identifier %d at level %d", tval, numVals)
+			return nil, fmt.Errorf("Invalid identifier %d at level %d pos %d", tval, numVals, identifierPos)
 		}
 		oid[numVals] = uint32(tval)
-		if decoder.Len() == endLen {
+		if decoder.pos-startingPos == numBytes {
 			break
 		}
-		if decoder.Len() < endLen {
-			return nil, fmt.Errorf("Decoding object identifier consumed too many bytes: %d vs expected %d", numBytes+(endLen-decoder.Len()), numBytes)
+		if decoder.pos-startingPos > numBytes {
+			return nil, fmt.Errorf("Decoding object identifier at pos %d consumed too many bytes: %d vs expected %d", startingPos, decoder.pos-startingPos, numBytes)
 		}
 	}
-	oid = oid[0:numVals]
+	oid = oid[0 : numVals+1]
 	return oid, nil
 }

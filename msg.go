@@ -143,7 +143,7 @@ func (msg *communityMessage) setCommunity(community string) {
 	msg.community = community
 }
 
-func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (msg snmpCommunityMessage, err error) {
+func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (snmpCommunityMessage, error) {
 	communityBytes, err := decoder.decodeOctetStringWithHeader()
 	if err != nil {
 		return nil, err
@@ -157,6 +157,7 @@ func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (msg snmpC
 		return nil, fmt.Errorf("Encoded pdu length %d doesn't match remaining msg length %d", pduLength, decoder.Len())
 	}
 	pduType := PDUType(rawPduType)
+	var msg snmpCommunityMessage
 	switch pduType {
 	case GET_REQUEST, GET_NEXT_REQUEST, SET_REQUEST:
 		msg = new(CommunityRequest)
@@ -184,7 +185,7 @@ func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (msg snmpC
 	msg.setCommunity(community)
 	msg.setPduType(pduType)
 	msg.decode(decoder)
-	return
+	return msg, nil
 }
 
 // base type for all v1/v2c request/response messages
@@ -228,18 +229,18 @@ func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) [
 	return encoder.serialize()
 }
 
-func (msg *communityRequestResponse) decode(decoder *berDecoder) (err error) {
-	msg.requestId, err = decoder.decodeUint32WithHeader()
-	msg.errorVal, err = decoder.decodeInt32WithHeader()
-	msg.errorIdx, err = decoder.decodeInt32WithHeader()
-	for varbindCount := 0; decoder.Len() != 0; varbindCount++ {
-		vb, err := decodeVarbind(decoder)
-		if err != nil {
-			return fmt.Errorf("Couldn't decode varbind %d, err: %s", varbindCount+1, err)
-		}
-		msg.varbinds = append(msg.varbinds, vb)
+func (msg *communityRequestResponse) decode(decoder *berDecoder) error {
+	var err error
+	if msg.requestId, err = decoder.decodeUint32WithHeader(); err != nil {
+		return err
 	}
-	return
+	if msg.errorVal, err = decoder.decodeInt32WithHeader(); err != nil {
+		return err
+	}
+	if msg.errorIdx, err = decoder.decodeInt32WithHeader(); err != nil {
+		return err
+	}
+	return msg.decodeVarbinds(decoder)
 }
 
 type CommunityRequest struct {

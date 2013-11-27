@@ -3,6 +3,7 @@ package gosnmp_test
 import (
 	"fmt"
 	"github.com/cihub/seelog"
+	"github.com/davecgh/go-spew/spew"
 	snmp "github.com/idawes/gosnmp"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -145,6 +146,10 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						go func(client *snmp.V2cClient) {
 							req := clientCtxt.AllocateV2cGetRequest()
 							client.SendRequest(req)
+							err := req.GetError()
+							Ω(err).ShouldNot(BeNil())
+							_, ok := err.(snmp.TimeoutError)
+							Ω(ok).Should(BeTrue())
 							waitGroup.Done()
 							clientCtxt.FreeV2cRequest(req)
 						}(clients[i])
@@ -210,6 +215,10 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 							go func() {
 								req := clientCtxt.AllocateV2cGetRequest()
 								clients[0].SendRequest(req)
+								err := req.GetError()
+								Ω(err).ShouldNot(BeNil())
+								_, ok := err.(snmp.TimeoutError)
+								Ω(ok).Should(BeTrue(), spew.Sdump(req))
 								waitGroup.Done()
 							}()
 						}
@@ -231,15 +240,63 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 			})
 		})
 
-		Describe("sending a request to an active agent", func() {
+		FDescribe("sending a request to an active agent", func() {
 			var (
 				agent *snmp.Agent
 			)
 			BeforeEach(func() {
-				agent = snmp.NewAgentWithPort("testAgent", 10, 5000, logger)
+				agent = snmp.NewAgentWithPort("testAgent", 10, 2000, logger)
+				time.Sleep(1 * time.Second)
 			})
 			AfterEach(func() {
 				agent.Shutdown()
+			})
+			ValidateResponse := func(retries int, timeoutSeconds int) {
+				It("should return a valid response", func(done Done) {
+					var waitGroup sync.WaitGroup
+					waitGroup.Add(numClients)
+					start := time.Now()
+					for i := 0; i < numClients; i++ {
+						clients[i].Retries = retries
+						clients[i].TimeoutSeconds = timeoutSeconds
+						go func(client *snmp.V2cClient) {
+							req := clientCtxt.AllocateV2cGetRequest()
+							req.AddOid(snmp.SYS_OBJECT_ID_OID)
+							req.AddOid(snmp.SYS_DESCR_OID)
+							client.SendRequest(req)
+							err := req.GetError()
+							Ω(err).Should(BeNil())
+							resp := req.GetResponse()
+							Ω(resp).ShouldNot(BeNil())
+							clientCtxt.FreeV2cRequest(req)
+							waitGroup.Done()
+						}(clients[i])
+					}
+					waitGroup.Wait()
+					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1))+0.2))
+					statsBin, err := clientCtxt.GetStatsBin(0)
+					Ω(err).Should(BeNil())
+					Ω(statsBin.Stats[snmp.RESPONSES_RECEIVED]).Should(Equal(0))
+					Ω(statsBin.Stats[snmp.RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT]).Should(Equal(0))
+					Ω(statsBin.Stats[snmp.REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED]).Should(Equal(0))
+					Ω(statsBin.Stats[snmp.REQUESTS_TIMED_OUT]).Should(Equal(numClients * retries))
+					Ω(statsBin.Stats[snmp.REQUESTS_SENT]).Should(Equal(numClients))
+					Ω(statsBin.Stats[snmp.REQUESTS_RETRIES_EXHAUSTED]).Should(Equal(numClients))
+					Ω(statsBin.Stats[snmp.REQUESTS_FORWARDED_TO_FLOW_CONTROL]).Should(Equal(numClients * (retries + 1)))
+					Ω(statsBin.Stats[snmp.OUTBOUND_MESSAGES_SENT]).Should(Equal(numClients * (retries + 1)))
+					close(done)
+				}, float64(timeoutSeconds*(retries+1))+2)
+			}
+			Context("from a single client", func() {
+				Context("using 0 retries and a timeout of 1 second", func() {
+					ValidateResponse(0, 1)
+				})
+				// Context("using 1 retry and a timeout of 2 seconds", func() {
+				// 	ValidateRequestTimeout(1, 2)
+				// })
+				// Context("using 2 retries and a timeout of 1 second", func() {
+				// 	ValidateRequestTimeout(2, 1)
+				// })
 			})
 		})
 	})

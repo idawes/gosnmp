@@ -16,23 +16,25 @@ func (encoder *berEncoder) encodeOctetString(val OctectString) int {
 }
 
 func (decoder *berDecoder) decodeOctetStringWithHeader() (OctectString, error) {
+	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
 		return nil, err
 	}
 	if blockType != OCTET_STRING {
-		return nil, fmt.Errorf("Expecting type OCTET_STRING (0x%x), found 0x%x", OCTET_STRING, blockType)
+		return nil, fmt.Errorf("Expecting type OCTET_STRING (0x%x), found 0x%x at pos %d", OCTET_STRING, blockType, startingPos)
 	}
 	return decoder.decodeOctetString(blockLength)
 }
 
 func (decoder *berDecoder) decodeOctetString(numBytes int) (OctectString, error) {
 	if numBytes > decoder.Len() {
-		return nil, fmt.Errorf("Length %d for octet string exceeds available number of bytes %d", numBytes, decoder.Len())
+		return nil, fmt.Errorf("Length %d for octet string exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}
 	val := make(OctectString, numBytes)
 	if numRead, err := decoder.Read(val); err != nil || numRead != numBytes {
-		return nil, fmt.Errorf("Couldn't decode octet string of length %d. Number of bytes read from stream: %d, err: %s", numBytes, numRead, err)
+		return nil, fmt.Errorf("Could only read %d of %d bytes for octet string at pos %d, err: %s", numRead, numBytes, decoder.pos, err)
 	}
+	decoder.pos += numBytes
 	return val, nil
 }

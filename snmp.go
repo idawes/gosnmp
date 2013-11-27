@@ -384,7 +384,7 @@ func (ctxt *SnmpContext) trackRequests() {
 				ctxt.outboundFlowControlQueue <- req
 			} else {
 				delete(ctxt.outstandingRequests, req.getRequestId())
-				req.setError(new(TimeoutError))
+				req.setError(TimeoutError{})
 				ctxt.incrementStat(REQUESTS_RETRIES_EXHAUSTED)
 				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, req.GetLoggingId())
 				req.notify()
@@ -483,10 +483,9 @@ func (ctxt *SnmpContext) listen() {
 func (ctxt *SnmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 	decodedMsg, err := decodeMsg(msg)
 	if err != nil {
-		ctxt.Debugf("Ctxt %s: Couldn't decode message %x. Err: %s\n", ctxt.name, msg, err)
+		ctxt.Debugf("Ctxt %s: Couldn't decode message % #x. Err: %s\n", ctxt.name, msg, err)
 		return
 	}
-	ctxt.Debugf("Ctxt %s: Received msg: \n%s", ctxt.name, spew.Sdump(decodedMsg))
 	decodedMsg.setAddress(addr)
 }
 

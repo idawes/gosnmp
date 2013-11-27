@@ -7,10 +7,11 @@ import (
 
 type berDecoder struct {
 	*bytes.Buffer
+	pos int
 }
 
 func newBerDecoder(msg []byte) *berDecoder {
-	decoder := berDecoder{bytes.NewBuffer(msg)}
+	decoder := berDecoder{bytes.NewBuffer(msg), 0}
 	return &decoder
 }
 
@@ -18,8 +19,9 @@ func newBerDecoder(msg []byte) *berDecoder {
 func (decoder *berDecoder) decodeHeader() (snmpBlockType, int, error) {
 	blockType, err := decoder.ReadByte()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("Couldn't read byte at pos %d, err: %s", decoder.pos, err)
 	}
+	decoder.pos++
 	blockLength, err := decoder.decodeLength()
 	if err != nil {
 		return 0, 0, err
@@ -35,8 +37,9 @@ func (decoder *berDecoder) decodeLength() (int, error) {
 	var length int
 	firstByte, err := decoder.ReadByte()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("Couldn't read byte at pos %d, err: %s", decoder.pos, err)
 	}
+	decoder.pos++
 	if firstByte < 127 {
 		length = int(firstByte)
 		return length, nil
@@ -44,13 +47,14 @@ func (decoder *berDecoder) decodeLength() (int, error) {
 	for numBytes := firstByte; numBytes > 0; numBytes-- {
 		temp, err := decoder.ReadByte()
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("Couldn't read byte at pos %d, err: %s", decoder.pos, err)
 		}
+		decoder.pos++
 		length <<= 8
 		length += int(temp)
 	}
 	if length < 0 {
-		return 0, fmt.Errorf("Decoding length field found negative value: %d", length)
+		return 0, fmt.Errorf("Decoding length field found negative value: %d at pos %d", length, decoder.pos)
 	}
 	return length, nil
 }
@@ -59,7 +63,7 @@ func (decoder *berDecoder) decodeLength() (int, error) {
 func (decoder *berDecoder) decodeValue() (snmpBlockType, interface{}, error) {
 	valueType, valueLength, err := decoder.decodeHeader()
 	if err != nil {
-		return 0, nil, fmt.Errorf("Unable to decode value header - err: %s", err)
+		return 0, nil, fmt.Errorf("Unable to decode value header at pos %d - err: %s", decoder.pos, err)
 	}
 	var value interface{}
 	switch valueType {
@@ -100,8 +104,9 @@ func (decoder *berDecoder) decode2sComplementInt(numBytes int) (int64, error) {
 	for i := 0; i < numBytes; i++ {
 		temp, err := decoder.ReadByte()
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("Couldn't read byte at pos %d, err: %s", decoder.pos, err)
 		}
+		decoder.pos++
 		val <<= 8
 		val |= int64(temp)
 	}
@@ -114,18 +119,21 @@ func (decoder *berDecoder) decode2sComplementInt(numBytes int) (int64, error) {
 
 func (decoder *berDecoder) decodeBase128Int() (int64, error) {
 	var val int64
-	for numBytesRead := 0; ; numBytesRead++ {
+	numBytesRead := 0
+	for ; ; numBytesRead++ {
 		if numBytesRead == 4 {
-			return 0, fmt.Errorf("Base 128 integer too large")
+			return 0, fmt.Errorf("Base 128 integer too large at pos %d", decoder.pos)
 		}
 		val <<= 7
 		b, err := decoder.ReadByte()
 		if err != nil {
-			return 0, fmt.Errorf("Couldn't read byte %d of base 128 integer", numBytesRead+1)
+			return 0, fmt.Errorf("Couldn't read byte %d of base 128 integer at pos %d", numBytesRead+1, decoder.pos)
 		}
 		val |= int64(b & 0x7f)
 		if b&0x80 == 0 {
-			return val, nil
+			break
 		}
 	}
+	decoder.pos += numBytesRead + 1
+	return val, nil
 }
