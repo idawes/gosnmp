@@ -47,6 +47,7 @@ type IntegerVarbind struct { // type 0x02
 func NewIntegerVarbind(oid ObjectIdentifier, val int32) *IntegerVarbind {
 	vb := new(IntegerVarbind)
 	vb.oid = oid
+	vb.val = val
 	return vb
 }
 
@@ -69,6 +70,7 @@ type BitStringVarbind struct { // type 0x03
 func NewBitStringVarbind(oid ObjectIdentifier, val *BitString) *BitStringVarbind {
 	vb := new(BitStringVarbind)
 	vb.oid = oid
+	vb.val = val
 	return vb
 }
 
@@ -89,6 +91,7 @@ type OctetStringVarbind struct { // type 0x04
 func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind {
 	vb := new(OctetStringVarbind)
 	vb.oid = oid
+	vb.val = val
 	return vb
 }
 
@@ -133,6 +136,7 @@ type ObjectIdentifierVarbind struct { // type 0x06
 func NewObjectIdentifierVarbind(oid ObjectIdentifier, val ObjectIdentifier) *ObjectIdentifierVarbind {
 	vb := new(ObjectIdentifierVarbind)
 	vb.oid = oid
+	vb.val = val
 	return vb
 }
 
@@ -153,7 +157,7 @@ type IPv4AddressVarbind struct { // type 0x40
 func NewIPv4AddressVarbind(oid ObjectIdentifier, val net.IP) *IPv4AddressVarbind {
 	vb := new(IPv4AddressVarbind)
 	vb.oid = oid
-
+	vb.val = val
 	return vb
 }
 
