@@ -22,9 +22,9 @@ func (oid ObjectIdentifier) Equal(other ObjectIdentifier) bool {
 }
 
 // encodeObjectIdentifier writes an object identifier to the encoder. It returns the number of bytes written to the encoder
-func (encoder *berEncoder) encodeObjectIdentifier(oid ObjectIdentifier) int {
+func (encoder *berEncoder) encodeObjectIdentifier(oid ObjectIdentifier) (int, error) {
 	if len(oid) < 2 || oid[0] > 6 || oid[1] >= 40 {
-		panic(fmt.Sprintf("Invalid oid: %v", oid))
+		return 0, fmt.Errorf("Invalid oid: %v", oid)
 	}
 	h := encoder.newHeader(OBJECT_IDENTIFIER)
 	buf := encoder.append()
@@ -33,7 +33,7 @@ func (encoder *berEncoder) encodeObjectIdentifier(oid ObjectIdentifier) int {
 		encodeBase128Int(buf, int64(oid[i]))
 	}
 	_, encodedLength := h.setContentLength(buf.Len())
-	return encodedLength
+	return encodedLength, nil
 }
 
 func (decoder *berDecoder) decodeObjectIdentifierWithHeader() (ObjectIdentifier, error) {

@@ -2,21 +2,29 @@ package gosnmp
 
 import (
 	"fmt"
+	"net"
 )
 
 type Varbind interface {
-	encodeValue(encoder *berEncoder) (marshalledLen int)
-	decodeValue(decoder *berDecoder, valueLength int) (err error)
+	//encodeValue returns the number of bytes written to the encoder
+	encodeValue(encoder *berEncoder) (int, error)
+	decodeValue(decoder *berDecoder, valueLength int) error
 	getOid() ObjectIdentifier
 	setOid(oid ObjectIdentifier)
 }
 
-func (encoder *berEncoder) encodeVarbind(vb Varbind) (marshalledLen int) {
+func (encoder *berEncoder) encodeVarbind(vb Varbind) (int, error) {
 	header := encoder.newHeader(SEQUENCE)
-	len := encoder.encodeObjectIdentifier(vb.getOid())
-	len += vb.encodeValue(encoder)
-	_, marshalledLen = header.setContentLength(len)
-	return
+	oidLen, err := encoder.encodeObjectIdentifier(vb.getOid())
+	if err != nil {
+		return 0, err
+	}
+	valLen, err := vb.encodeValue(encoder)
+	if err != nil {
+		return 0, err
+	}
+	_, marshalledLen := header.setContentLength(oidLen + valLen)
+	return marshalledLen, nil
 }
 
 type baseVarbind struct {
@@ -42,8 +50,8 @@ func NewIntegerVarbind(oid ObjectIdentifier, val int32) *IntegerVarbind {
 	return vb
 }
 
-func (vb *IntegerVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
-	return encoder.encodeInteger(int64(vb.val))
+func (vb *IntegerVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeInteger(int64(vb.val)), nil
 }
 
 func (vb *IntegerVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
@@ -64,8 +72,8 @@ func NewBitStringVarbind(oid ObjectIdentifier, val *BitString) *BitStringVarbind
 	return vb
 }
 
-func (vb *BitStringVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
-	return encoder.encodeBitString(vb.val)
+func (vb *BitStringVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeBitString(vb.val), nil
 }
 
 func (vb *BitStringVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
@@ -84,8 +92,8 @@ func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind
 	return vb
 }
 
-func (vb *OctetStringVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
-	return encoder.encodeOctetString(vb.val)
+func (vb *OctetStringVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeOctetString(vb.val), nil
 }
 
 func (vb *OctetStringVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
@@ -106,8 +114,8 @@ func NewNullVarbind(oid ObjectIdentifier) *NullVarbind {
 	return vb
 }
 
-func (vb *NullVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
-	return encoder.encodeNull()
+func (vb *NullVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeNull(), nil
 }
 
 func (vb *NullVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
@@ -128,26 +136,34 @@ func NewObjectIdentifierVarbind(oid ObjectIdentifier, val ObjectIdentifier) *Obj
 	return vb
 }
 
-func (vb *ObjectIdentifierVarbind) encodeValue(encoder *berEncoder) (marshalledLen int) {
+func (vb *ObjectIdentifierVarbind) encodeValue(encoder *berEncoder) (int, error) {
 	return encoder.encodeObjectIdentifier(vb.val)
 }
 
 func (vb *ObjectIdentifierVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	if valueLength != 0 {
-		return fmt.Errorf("Non-zero value length found for NULL varbind: %d", valueLength)
-	}
+	vb.val, err = decoder.decodeObjectIdentifier(valueLength)
 	return
 }
 
-type IpAddressVarbind struct { // type 0x40
+type IPv4AddressVarbind struct { // type 0x40
 	baseVarbind
-	val [4]byte
+	val net.IP
 }
 
-func NewIpAddressVarbind(oid ObjectIdentifier) *IpAddressVarbind {
-	vb := new(IpAddressVarbind)
+func NewIPv4AddressVarbind(oid ObjectIdentifier, val net.IP) *IPv4AddressVarbind {
+	vb := new(IPv4AddressVarbind)
 	vb.oid = oid
+
 	return vb
+}
+
+func (vb *IPv4AddressVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeIPv4Address(vb.val)
+}
+
+func (vb *IPv4AddressVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
+	vb.val, err = decoder.decodeIPv4Address(valueLength)
+	return
 }
 
 type Counter32Varbind struct { // type 0x41
@@ -255,8 +271,8 @@ func decodeVarbind(decoder *berDecoder) (varbind Varbind, err error) {
 		varbind = NewNullVarbind(oid)
 	case OBJECT_IDENTIFIER:
 		varbind = NewObjectIdentifierVarbind(oid, value.(ObjectIdentifier))
-	// case IP_ADDRESS:
-	// 	varbind = NewIpAddressVarbind(oid)
+	case IP_ADDRESS:
+		varbind = NewIPv4AddressVarbind(oid, value.(net.IP))
 	// case COUNTER_32:
 	// 	varbind = NewCounter32Varbind(oid)
 	// case GAUGE_32:

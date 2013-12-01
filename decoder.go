@@ -78,9 +78,9 @@ func (decoder *berDecoder) decodeValue() (snmpBlockType, interface{}, error) {
 	case OBJECT_IDENTIFIER:
 		value, err = decoder.decodeObjectIdentifier(valueLength)
 	case SEQUENCE:
-		return 0, nil, fmt.Errorf("Unexpected value type SEQUENCE 0x%x", valueType)
+		return 0, nil, fmt.Errorf("Unexpected value type SEQUENCE 0x%x at pos %d", valueType, decoder.pos)
 	case IP_ADDRESS:
-		// value, err = decoder.decodeIpAddress(valueLength)
+		value, err = decoder.decodeIPv4Address(valueLength)
 	case COUNTER_32:
 		// value, err = decoder.decodeCounter32(valueLength)
 	case GAUGE_32:

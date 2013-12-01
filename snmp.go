@@ -414,7 +414,11 @@ func (ctxt *SnmpContext) processOutboundQueue() {
 	for {
 		select {
 		case msg := <-ctxt.outboundFlowControlQueue:
-			encodedMsg := msg.encode(ctxt.berEncoderFactory)
+			encodedMsg, err := msg.encode(ctxt.berEncoderFactory)
+			if err != nil {
+				ctxt.Debugf("Couldn't encode message: err: %s. Message:\n%s", err, spew.Sdump(msg))
+				continue
+			}
 			if n, err := ctxt.conn.WriteToUDP(encodedMsg, msg.getAddress()); err != nil || n != len(encodedMsg) {
 				if strings.HasSuffix(err.Error(), "closed network connection") {
 					ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to closed connection", ctxt.name)

@@ -36,8 +36,8 @@ func (pduType *PDUType) String() string {
 }
 
 type SnmpMessage interface {
-	encode(encoderFactory *berEncoderFactory) []byte
-	decode(decoder *berDecoder) (err error)
+	encode(encoderFactory *berEncoderFactory) ([]byte, error)
+	decode(decoder *berDecoder) error
 	getAddress() *net.UDPAddr
 	setAddress(*net.UDPAddr)
 	getVersion() SnmpVersion
@@ -208,7 +208,7 @@ func (msg *communityRequestResponse) getRequestId() uint32 {
 	return msg.requestId
 }
 
-func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) []byte {
+func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) ([]byte, error) {
 	encoder := encoderFactory.newBerEncoder()
 	defer encoder.destroy()
 	msgHeader := encoder.newHeader(SEQUENCE)
@@ -221,12 +221,16 @@ func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) [
 	varbindsListHeader := encoder.newHeader(SEQUENCE)
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += encoder.encodeVarbind(varbind)
+		encodedLen, err := encoder.encodeVarbind(varbind)
+		if err != nil {
+			return nil, err
+		}
+		varbindsLen += encodedLen
 	}
 	_, varbindsListLen := varbindsListHeader.setContentLength(varbindsLen)
 	_, pduLen := pduHeader.setContentLength(pduControlFieldsLen + varbindsListLen)
 	msgHeader.setContentLength(headerFieldsLen + pduLen)
-	return encoder.serialize()
+	return encoder.serialize(), nil
 }
 
 func (msg *communityRequestResponse) decode(decoder *berDecoder) error {
@@ -347,7 +351,7 @@ func (msg *V1Trap) GetLoggingId() string {
 	return fmt.Sprintf("%s:%d", msg.pduType, msg.timeStamp)
 }
 
-func (msg *V1Trap) encode(encoderFactory *berEncoderFactory) []byte {
+func (msg *V1Trap) encode(encoderFactory *berEncoderFactory) ([]byte, error) {
 	encoder := encoderFactory.newBerEncoder()
 	defer encoder.destroy()
 	msgHeader := encoder.newHeader(SEQUENCE)
@@ -357,13 +361,17 @@ func (msg *V1Trap) encode(encoderFactory *berEncoderFactory) []byte {
 	varbindsListHeader := encoder.newHeader(SEQUENCE)
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
-		varbindsLen += encoder.encodeVarbind(varbind)
+		encodedLen, err := encoder.encodeVarbind(varbind)
+		if err != nil {
+			return nil, err
+		}
+		varbindsLen += encodedLen
 	}
 	_, pduLen := varbindsListHeader.setContentLength(varbindsLen)
 	_, msgLen := pduHeader.setContentLength(pduLen)
 	msgLen += headerFieldsLen
 	msgHeader.setContentLength(msgLen)
-	return encoder.serialize()
+	return encoder.serialize(), nil
 }
 
 func (msg *V1Trap) decode(decoder *berDecoder) (err error) {
