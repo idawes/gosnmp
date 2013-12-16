@@ -1,7 +1,7 @@
 package gosnmp
 
 type Agent struct {
-	SnmpContext
+	snmpContext
 }
 
 func NewAgent(name string, maxTargets int, logger Logger) *Agent {
@@ -10,6 +10,10 @@ func NewAgent(name string, maxTargets int, logger Logger) *Agent {
 
 func NewAgentWithPort(name string, maxTargets int, port int, logger Logger) *Agent {
 	agent := new(Agent)
-	agent.SnmpContext = *newContext(name, maxTargets, false, port, logger)
+	agent.snmpContext = *newContext(name, maxTargets, false, port, logger)
 	return agent
+}
+
+func (ctxt *snmpContext) processIncomingRequest(req SnmpRequest) {
+
 }

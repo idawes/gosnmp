@@ -10,7 +10,7 @@ import (
 )
 
 type V2cClient struct {
-	snmpContext *SnmpContext
+	snmpContext *ClientContext
 
 	Address        *net.UDPAddr
 	TimeoutSeconds int
@@ -21,7 +21,7 @@ type V2cClient struct {
 }
 
 // NewV2cClient creates a new v2c client, using the default snmp port (161). It is equivalent to calling NewV2cClientWithPort(community, address, 161)
-func (ctxt *SnmpContext) NewV2cClient(community string, address string) (*V2cClient, error) {
+func (ctxt *ClientContext) NewV2cClient(community string, address string) (*V2cClient, error) {
 	return ctxt.NewV2cClientWithPort(community, address, 161)
 }
 
@@ -30,7 +30,7 @@ func (ctxt *SnmpContext) NewV2cClient(community string, address string) (*V2cCli
 // 3 times, with 10 seconds in between sends, for an overall timeout of 30 seconds.
 // This client is only intended to be used by a single goroutine, and as such, all calls to SendRequest() when a request is already in
 // flight will cause the the calling goroutine to be blocked until all preceding calls to SendRequest are fully resolved.
-func (ctxt *SnmpContext) NewV2cClientWithPort(community string, address string, port int) (*V2cClient, error) {
+func (ctxt *ClientContext) NewV2cClientWithPort(community string, address string, port int) (*V2cClient, error) {
 	var err error
 	client := new(V2cClient)
 	client.snmpContext = ctxt
@@ -62,36 +62,36 @@ func (client *V2cClient) SendRequest(req *CommunityRequest) {
 	return
 }
 
-func (ctxt *SnmpContext) AllocateV2cGetRequestWithOids(oids []ObjectIdentifier) *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cGetRequestWithOids(oids []ObjectIdentifier) *CommunityRequest {
 	req := ctxt.AllocateV2cGetRequest()
 	req.AddOids(oids)
 	return req
 }
 
-func (ctxt *SnmpContext) AllocateV2cGetRequest() *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cGetRequest() *CommunityRequest {
 	req := ctxt.allocateV2cRequest()
 	req.pduType = GET_REQUEST
 	return req
 }
 
-func (ctxt *SnmpContext) AllocateV2cGetNextRequest() *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cGetNextRequest() *CommunityRequest {
 	req := ctxt.allocateV2cRequest()
 	req.pduType = GET_NEXT_REQUEST
 	return req
 }
 
-func (ctxt *SnmpContext) AllocateV2cSetRequest() *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cSetRequest() *CommunityRequest {
 	req := ctxt.allocateV2cRequest()
 	req.pduType = SET_REQUEST
 	return req
 }
 
-func (ctxt *SnmpContext) allocateV2cRequest() *CommunityRequest {
+func (ctxt *ClientContext) allocateV2cRequest() *CommunityRequest {
 	req := ctxt.allocateCommunityRequest()
 	req.version = Version2c
 	return req
 }
 
-func (ctxt *SnmpContext) FreeV2cRequest(req *CommunityRequest) {
+func (ctxt *ClientContext) FreeV2cRequest(req *CommunityRequest) {
 	ctxt.freeCommunityRequest(req)
 }

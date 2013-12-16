@@ -16,7 +16,7 @@ import (
 func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan string) {
 	Describe("V2cClient", func() {
 		var (
-			clientCtxt *snmp.SnmpContext
+			clientCtxt *snmp.ClientContext
 			numClients int
 			clients    []*snmp.V2cClient
 			err        error

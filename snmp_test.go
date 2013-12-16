@@ -8,9 +8,9 @@ import (
 )
 
 func SetupLowLevelContextTest(logger seelog.LoggerInterface, testIdGenerator chan string) {
-	Describe("Low Level SnmpContext", func() {
+	Describe("Low Level snmpContext", func() {
 		var (
-			clientCtxt *SnmpContext
+			clientCtxt *ClientContext
 			numClients int
 			// clients    []*V2cClient
 			// err        error

@@ -78,8 +78,10 @@ func (e InvalidStateError) Error() string {
 // ******************************************************************
 // --------------------------- Context Life Cycle -------------------
 
-type SnmpContext struct {
+type snmpContext struct {
 	Logger
+	logDecodeErrors bool
+
 	name       string
 	maxTargets int
 	port       int
@@ -103,28 +105,28 @@ type SnmpContext struct {
 	outboundDied                 chan bool
 	inboundDied                  chan bool
 
-	statIncrementNotifications chan SnmpContextStatType
+	statIncrementNotifications chan snmpContextStatType
 	statRequests               chan snmpContextStatRequest
 
 	communityRequestPool *requestPool
 }
 
-func (ctxt *SnmpContext) Shutdown() {
+func (ctxt *snmpContext) Shutdown() {
 	ctxt.shutdownSync.Do(func() {
 		close(ctxt.externalShutdownNotification)
 		<-ctxt.shutDownComplete
 	})
 }
 
-func NewClientContext(name string, maxTargets int, logger Logger) *SnmpContext {
-	return newContext(name, maxTargets, true, 0, logger)
+func (ctxt *snmpContext) setDecodeErrorLogging(enabled bool) {
+	ctxt.logDecodeErrors = enabled
 }
 
-func newContext(name string, maxTargets int, startRequestTracker bool, port int, logger Logger) *SnmpContext {
+func newContext(name string, maxTargets int, startRequestTracker bool, port int, logger Logger) *snmpContext {
 	if logger == nil {
 		panic("logger must not be nil")
 	}
-	ctxt := new(SnmpContext)
+	ctxt := new(snmpContext)
 	ctxt.name = name
 	ctxt.Logger = logger
 	ctxt.maxTargets = maxTargets
@@ -147,7 +149,7 @@ func newContext(name string, maxTargets int, startRequestTracker bool, port int,
 	return ctxt
 }
 
-func (ctxt *SnmpContext) monitor() {
+func (ctxt *snmpContext) monitor() {
 	shuttingDown := false
 	var lastRestartAttempt time.Time
 	var restartTimer <-chan time.Time
@@ -192,10 +194,10 @@ func (ctxt *SnmpContext) monitor() {
 // *******************************************************************
 // --------------------------- STATS TRACKING ------------------------
 
-type SnmpContextStatType int
+type snmpContextStatType int
 
 const (
-	INBOUND_CONNECTION_DEATH SnmpContextStatType = iota
+	INBOUND_CONNECTION_DEATH snmpContextStatType = iota
 	INBOUND_CONNECTION_CLOSE
 	OUTBOUND_CONNECTION_DEATH
 	OUTBOUND_CONNECTION_CLOSE
@@ -209,28 +211,33 @@ const (
 	REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED
 	REQUESTS_TIMED_OUT
 	REQUESTS_RETRIES_EXHAUSTED
+	UNDECODABLE_MESSAGES_RECEIVED
+	GET_REQUESTS_RECEIVED
+	GET_BULK_REQUESTS_RECEIVED
+	SET_REQUESTS_RECEIVED
+	GET_RESPONSES_RECEIVED
 )
 
 type snmpContextStatRequest struct {
 	allStats     bool
-	singleStat   SnmpContextStatType
+	singleStat   snmpContextStatType
 	bin          uint8
 	responseChan chan interface{}
 }
 
-func (ctxt *SnmpContext) startStatTracker() {
-	ctxt.statIncrementNotifications = make(chan SnmpContextStatType, 100) // add some buffering to reduce likelihood of impacting throughput
+func (ctxt *snmpContext) startStatTracker() {
+	ctxt.statIncrementNotifications = make(chan snmpContextStatType, 100) // add some buffering to reduce likelihood of impacting throughput
 	ctxt.statRequests = make(chan snmpContextStatRequest)
 	go ctxt.trackStats()
 }
 
 type SnmpStatsBin struct {
-	Stats      map[SnmpContextStatType]int
+	Stats      map[snmpContextStatType]int
 	NumSeconds int
 }
 
 func newSnmpStatsBin() *SnmpStatsBin {
-	return &SnmpStatsBin{make(map[SnmpContextStatType]int), 0}
+	return &SnmpStatsBin{make(map[snmpContextStatType]int), 0}
 }
 
 func (bin *SnmpStatsBin) copy() *SnmpStatsBin {
@@ -242,7 +249,7 @@ func (bin *SnmpStatsBin) copy() *SnmpStatsBin {
 	return binCopy
 }
 
-func (ctxt *SnmpContext) trackStats() {
+func (ctxt *snmpContext) trackStats() {
 	fifteenMinuteBins := make([]*SnmpStatsBin, 97) // 96 fifteen minute bins in a day, plus one for the current bin
 	fifteenMinuteBins[0] = newSnmpStatsBin()
 	ticker := time.NewTicker(1 * time.Second)
@@ -280,17 +287,17 @@ func (ctxt *SnmpContext) trackStats() {
 
 		case <-ctxt.internalShutdownNotification:
 			ticker.Stop()
-			ctxt.Debugf("Ctxt %s: stats tracker shutting down due to SnmpContext shutdown", ctxt.name)
+			ctxt.Debugf("Ctxt %s: stats tracker shutting down due to snmpContext shutdown", ctxt.name)
 			return
 		}
 	}
 }
 
-func (ctxt *SnmpContext) incrementStat(statType SnmpContextStatType) {
+func (ctxt *snmpContext) incrementStat(statType snmpContextStatType) {
 	ctxt.statIncrementNotifications <- statType
 }
 
-func (ctxt *SnmpContext) GetStat(statType SnmpContextStatType, bin uint8) (int, error) {
+func (ctxt *snmpContext) GetStat(statType snmpContextStatType, bin uint8) (int, error) {
 	responseChan := make(chan interface{})
 	ctxt.statRequests <- snmpContextStatRequest{singleStat: statType, bin: bin, responseChan: responseChan}
 	resp := <-responseChan
@@ -305,7 +312,7 @@ func (ctxt *SnmpContext) GetStat(statType SnmpContextStatType, bin uint8) (int, 
 	return statVal, nil
 }
 
-func (ctxt *SnmpContext) GetStatsBin(bin uint8) (*SnmpStatsBin, error) {
+func (ctxt *snmpContext) GetStatsBin(bin uint8) (*SnmpStatsBin, error) {
 	responseChan := make(chan interface{})
 	ctxt.statRequests <- snmpContextStatRequest{allStats: true, bin: bin, responseChan: responseChan}
 	resp := <-responseChan
@@ -328,7 +335,7 @@ func (ctxt *SnmpContext) GetStatsBin(bin uint8) (*SnmpStatsBin, error) {
 // *******************************************************************
 // --------------------------- TRANSMIT SIDE -------------------------
 
-func (ctxt *SnmpContext) startRequestTracker(maxTargets int) {
+func (ctxt *snmpContext) startRequestTracker(maxTargets int) {
 	ctxt.requestsFromClients = make(chan SnmpRequest, maxTargets)
 	ctxt.responsesFromAgents = make(chan SnmpResponse, 100)
 	ctxt.requestTimeouts = make(chan uint32)
@@ -337,12 +344,12 @@ func (ctxt *SnmpContext) startRequestTracker(maxTargets int) {
 	return
 }
 
-func (ctxt *SnmpContext) sendRequest(req SnmpRequest) {
+func (ctxt *snmpContext) sendRequest(req SnmpRequest) {
 	ctxt.incrementStat(REQUESTS_SENT)
 	ctxt.requestsFromClients <- req
 }
 
-func (ctxt *SnmpContext) trackRequests() {
+func (ctxt *snmpContext) trackRequests() {
 	var nextRequestId uint32 = 0
 	var (
 		resp SnmpResponse
@@ -391,21 +398,21 @@ func (ctxt *SnmpContext) trackRequests() {
 			}
 
 		case <-ctxt.internalShutdownNotification:
-			ctxt.Debugf("Ctxt %s: request tracker shutting down due to SnmpContext shutdown", ctxt.name)
+			ctxt.Debugf("Ctxt %s: request tracker shutting down due to snmpContext shutdown", ctxt.name)
 			return
 		}
 	}
 }
 
-func (ctxt *SnmpContext) handleRequestTimeout(req SnmpRequest) {
+func (ctxt *snmpContext) handleRequestTimeout(req SnmpRequest) {
 	ctxt.requestTimeouts <- req.getRequestId()
 }
 
-// func (ctxt *SnmpContext) sendResponse(resp SnmpResponse) {
+// func (ctxt *snmpContext) sendResponse(resp SnmpResponse) {
 // 	ctxt.outboundFlowControlQueue <- resp
 // }
 
-func (ctxt *SnmpContext) processOutboundQueue() {
+func (ctxt *snmpContext) processOutboundQueue() {
 	defer func() {
 		ctxt.outboundDied <- true
 		ctxt.conn.Close() // make sure that receive side shuts down too.
@@ -434,7 +441,7 @@ func (ctxt *SnmpContext) processOutboundQueue() {
 			ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to shutdown message", ctxt.name)
 			return
 		case <-ctxt.internalShutdownNotification:
-			ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to SnmpContext shutdown", ctxt.name)
+			ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to snmpContext shutdown", ctxt.name)
 			return
 		}
 	}
@@ -447,7 +454,7 @@ func (ctxt *SnmpContext) processOutboundQueue() {
 // ******************************************************************
 // --------------------------- RECEIVE SIDE -------------------------
 
-func (ctxt *SnmpContext) startReceiver(port int) {
+func (ctxt *snmpContext) startReceiver(port int) {
 	var err error
 	if ctxt.conn, err = net.ListenUDP("udp", &net.UDPAddr{Port: port}); err != nil {
 		ctxt.Debugf("Ctxt %s: Couldn't bind local port: - %s", ctxt.name, err)
@@ -458,13 +465,13 @@ func (ctxt *SnmpContext) startReceiver(port int) {
 	return
 }
 
-func (ctxt *SnmpContext) listen() {
+func (ctxt *snmpContext) listen() {
 	defer func() {
 		ctxt.inboundDied <- true
 		ctxt.outboundFlowControlShutdown <- true // make sure that transmit side shuts down too.
 	}()
 	ctxt.Debugf("Ctxt %s: incoming message listener initializing", ctxt.name)
-	msg := make([]byte, 0, 2000)
+	msg := make([]byte, 0, 2000) // UDP... 2000 bytes should be more than enough to hold the largest possible message.
 	for {
 		msg = msg[0:cap(msg)]
 		readLen, addr, err := ctxt.conn.ReadFromUDP(msg)
@@ -473,7 +480,7 @@ func (ctxt *SnmpContext) listen() {
 				ctxt.Debugf("Ctxt %s: incoming message listener shutting down", ctxt.name)
 				ctxt.incrementStat(INBOUND_CONNECTION_CLOSE)
 			} else {
-				ctxt.Errorf("Ctxt %s: UDP read error: %#v, readLen: %d. SnmpContext shutting down", ctxt.name, err, readLen)
+				ctxt.Errorf("Ctxt %s: UDP read error: %#v, readLen: %d. snmpContext shutting down", ctxt.name, err, readLen)
 				ctxt.incrementStat(INBOUND_CONNECTION_DEATH)
 			}
 			return
@@ -484,13 +491,32 @@ func (ctxt *SnmpContext) listen() {
 	}
 }
 
-func (ctxt *SnmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
+func (ctxt *snmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 	decodedMsg, err := decodeMsg(msg)
 	if err != nil {
-		ctxt.Debugf("Ctxt %s: Couldn't decode message % #x. Err: %s\n", ctxt.name, msg, err)
+		ctxt.incrementStat(UNDECODABLE_MESSAGES_RECEIVED)
+		if ctxt.logDecodeErrors {
+			ctxt.Debugf("Ctxt %s: Couldn't decode message % #x. Err: %s\n", ctxt.name, msg, err)
+		}
 		return
 	}
 	decodedMsg.setAddress(addr)
+	switch decodedMsg.getPduType() {
+	case GET_REQUEST:
+		ctxt.incrementStat(GET_REQUESTS_RECEIVED)
+		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
+	case GET_BULK_REQUEST:
+		ctxt.incrementStat(GET_BULK_REQUESTS_RECEIVED)
+		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
+	case SET_REQUEST:
+		ctxt.incrementStat(SET_REQUESTS_RECEIVED)
+		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
+	case GET_RESPONSE:
+		ctxt.incrementStat(GET_RESPONSES_RECEIVED)
+		ctxt.responsesFromAgents <- decodedMsg.(SnmpResponse)
+	case V1_TRAP:
+	case V2_TRAP:
+	}
 }
 
 //
@@ -500,16 +526,16 @@ func (ctxt *SnmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 // ******************************************************************
 // --------------------------- Request Pools ------------------------
 
-func (ctxt *SnmpContext) startRequestPools() {
+func (ctxt *snmpContext) startRequestPools() {
 	ctxt.communityRequestPool = newRequestPool(ctxt.maxTargets, func() SnmpRequest {
 		return newCommunityRequest()
 	}, ctxt)
 }
 
-func (ctxt *SnmpContext) allocateCommunityRequest() *CommunityRequest {
+func (ctxt *snmpContext) allocateCommunityRequest() *CommunityRequest {
 	return ctxt.communityRequestPool.getRequest().(*CommunityRequest)
 }
 
-func (ctxt *SnmpContext) freeCommunityRequest(req *CommunityRequest) {
+func (ctxt *snmpContext) freeCommunityRequest(req *CommunityRequest) {
 	ctxt.communityRequestPool.putRequest(req)
 }

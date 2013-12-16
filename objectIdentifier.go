@@ -67,7 +67,6 @@ func (decoder *berDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifie
 	oid[1] = uint32(firstByte) % 40
 	numVals := 2
 	for ; ; numVals++ {
-		fmt.Println(numVals, decoder.pos, startingPos, numBytes)
 		identifierPos := decoder.pos
 		tval, err := decoder.decodeBase128Int()
 		if err != nil {
