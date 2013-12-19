@@ -1,12 +1,13 @@
-package gosnmp
+package asn
 
 import (
 	"fmt"
+	. "github.com/idawes/gosnmp/common"
 	"net"
 )
 
 // encodeIPv4Address writes an IPv4 address to the encoder. It returns the number of bytes written to the encoder
-func (encoder *berEncoder) encodeIPv4Address(addr net.IP) (int, error) {
+func (encoder *BerEncoder) encodeIPv4Address(addr net.IP) (int, error) {
 	ipv4Addr := addr.To4()
 	if ipv4Addr == nil {
 		return 0, fmt.Errorf("IP Address %s is not a valid v4 address", addr.String())
@@ -18,7 +19,7 @@ func (encoder *berEncoder) encodeIPv4Address(addr net.IP) (int, error) {
 	return encodedLength, nil
 }
 
-func (decoder *berDecoder) decodeIPv4AddressWithHeader() (net.IP, error) {
+func (decoder *BerDecoder) decodeIPv4AddressWithHeader() (net.IP, error) {
 	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
@@ -30,7 +31,7 @@ func (decoder *berDecoder) decodeIPv4AddressWithHeader() (net.IP, error) {
 	return decoder.decodeIPv4Address(blockLength)
 }
 
-func (decoder *berDecoder) decodeIPv4Address(numBytes int) (net.IP, error) {
+func (decoder *BerDecoder) decodeIPv4Address(numBytes int) (net.IP, error) {
 	if numBytes > decoder.Len() {
 		return net.IPv4zero, fmt.Errorf("Length %d for IPv4 address exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}

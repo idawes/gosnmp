@@ -1,13 +1,14 @@
-package gosnmp
+package asn
 
 import (
 	"fmt"
+	. "github.com/idawes/gosnmp/common"
 )
 
 type OctectString []byte
 
 // encodeOctetString writes an octet string to the encoder. It returns the number of bytes written to the encoder
-func (encoder *berEncoder) encodeOctetString(val OctectString) int {
+func (encoder *BerEncoder) encodeOctetString(val OctectString) int {
 	h := encoder.newHeader(OCTET_STRING)
 	buf := encoder.append()
 	buf.Write(val)
@@ -15,7 +16,7 @@ func (encoder *berEncoder) encodeOctetString(val OctectString) int {
 	return encodedLength
 }
 
-func (decoder *berDecoder) decodeOctetStringWithHeader() (OctectString, error) {
+func (decoder *BerDecoder) decodeOctetStringWithHeader() (OctectString, error) {
 	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
@@ -27,7 +28,7 @@ func (decoder *berDecoder) decodeOctetStringWithHeader() (OctectString, error) {
 	return decoder.decodeOctetString(blockLength)
 }
 
-func (decoder *berDecoder) decodeOctetString(numBytes int) (OctectString, error) {
+func (decoder *BerDecoder) decodeOctetString(numBytes int) (OctectString, error) {
 	if numBytes > decoder.Len() {
 		return nil, fmt.Errorf("Length %d for octet string exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}

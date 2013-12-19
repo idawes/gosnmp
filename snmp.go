@@ -3,48 +3,13 @@ package gosnmp
 import (
 	"fmt"
 	"github.com/davecgh/go-spew/spew"
+	. "github.com/idawes/gosnmp/asn"
+	. "github.com/idawes/gosnmp/common"
 	"math"
 	"net"
 	"strings"
 	"sync"
 	"time"
-)
-
-type SnmpVersion int
-
-const (
-	Version1  SnmpVersion = 0x00
-	Version2c             = 0x01
-)
-
-func (version SnmpVersion) String() string {
-	switch version {
-	case Version1:
-		return "SNMPv1"
-	case Version2c:
-		return "SNMPv2c"
-	default:
-		return "Unknown"
-	}
-}
-
-type snmpBlockType byte
-
-const (
-	INTEGER           snmpBlockType = 0x02
-	BIT_STRING                      = 0x03
-	OCTET_STRING                    = 0x04
-	NULL                            = 0x05
-	OBJECT_IDENTIFIER               = 0x06
-	SEQUENCE                        = 0x30
-	IP_ADDRESS                      = 0x40
-	COUNTER_32                      = 0x41
-	GAUGE_32                        = 0x42
-	TIME_TICKS                      = 0x43
-	OPAQUE                          = 0x44
-	NSAP_ADDRESS                    = 0x45
-	COUNTER_64                      = 0x46
-	UINT_32                         = 0x47
 )
 
 //
@@ -94,7 +59,7 @@ type snmpContext struct {
 	outstandingRequests map[uint32]SnmpRequest
 
 	//
-	berEncoderFactory           *berEncoderFactory
+	BerEncoderFactory           *BerEncoderFactory
 	outboundFlowControlQueue    chan SnmpMessage
 	outboundFlowControlShutdown chan bool
 
@@ -131,7 +96,7 @@ func newContext(name string, maxTargets int, startRequestTracker bool, port int,
 	ctxt.Logger = logger
 	ctxt.maxTargets = maxTargets
 	ctxt.port = port
-	ctxt.berEncoderFactory = newBerEncoderFactory(logger)
+	ctxt.BerEncoderFactory = NewBerEncoderFactory(logger)
 	ctxt.outboundFlowControlQueue = make(chan SnmpMessage, ctxt.maxTargets)
 	ctxt.outboundFlowControlShutdown = make(chan bool)
 	ctxt.externalShutdownNotification = make(chan bool)
@@ -360,23 +325,23 @@ func (ctxt *snmpContext) trackRequests() {
 		select {
 		case req = <-ctxt.requestsFromClients:
 			nextRequestId += 1
-			req.setRequestId(nextRequestId)
+			req.SetRequestId(nextRequestId)
 			ctxt.outstandingRequests[nextRequestId] = req
-			req.startTimer(ctxt.handleRequestTimeout)
+			req.StartTimer(ctxt.handleRequestTimeout)
 			ctxt.incrementStat(REQUESTS_FORWARDED_TO_FLOW_CONTROL)
 			ctxt.outboundFlowControlQueue <- req
 
 		case resp = <-ctxt.responsesFromAgents:
-			req = ctxt.outstandingRequests[resp.getRequestId()]
+			req = ctxt.outstandingRequests[resp.GetRequestId()]
 			if req == nil {
 				ctxt.incrementStat(RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT)
 				continue // most likely we've already timed out the request.
 			}
-			delete(ctxt.outstandingRequests, req.getRequestId())
-			req.stopTimer()
-			req.setResponse(resp)
+			delete(ctxt.outstandingRequests, req.GetRequestId())
+			req.StopTimer()
+			req.SetResponse(resp)
 			ctxt.incrementStat(RESPONSES_RECEIVED)
-			req.notify()
+			req.Notify()
 
 		case requestId := <-ctxt.requestTimeouts:
 			req = ctxt.outstandingRequests[requestId]
@@ -384,17 +349,17 @@ func (ctxt *snmpContext) trackRequests() {
 				ctxt.incrementStat(REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED)
 				continue
 			}
-			if req.isRetryRequired() {
-				req.startTimer(ctxt.handleRequestTimeout)
+			if req.IsRetryRequired() {
+				req.StartTimer(ctxt.handleRequestTimeout)
 				ctxt.incrementStat(REQUESTS_TIMED_OUT)
 				ctxt.incrementStat(REQUESTS_FORWARDED_TO_FLOW_CONTROL)
 				ctxt.outboundFlowControlQueue <- req
 			} else {
-				delete(ctxt.outstandingRequests, req.getRequestId())
-				req.setError(TimeoutError{})
+				delete(ctxt.outstandingRequests, req.GetRequestId())
+				req.SetError(TimeoutError{})
 				ctxt.incrementStat(REQUESTS_RETRIES_EXHAUSTED)
 				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, req.GetLoggingId())
-				req.notify()
+				req.Notify()
 			}
 
 		case <-ctxt.internalShutdownNotification:
@@ -405,7 +370,7 @@ func (ctxt *snmpContext) trackRequests() {
 }
 
 func (ctxt *snmpContext) handleRequestTimeout(req SnmpRequest) {
-	ctxt.requestTimeouts <- req.getRequestId()
+	ctxt.requestTimeouts <- req.GetRequestId()
 }
 
 // func (ctxt *snmpContext) sendResponse(resp SnmpResponse) {
@@ -421,7 +386,7 @@ func (ctxt *snmpContext) processOutboundQueue() {
 	for {
 		select {
 		case msg := <-ctxt.outboundFlowControlQueue:
-			encodedMsg, err := msg.encode(ctxt.berEncoderFactory)
+			encodedMsg, err := msg.Encode(ctxt.BerEncoderFactory)
 			if err != nil {
 				ctxt.Debugf("Couldn't encode message: err: %s. Message:\n%s", err, spew.Sdump(msg))
 				continue

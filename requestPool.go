@@ -1,5 +1,10 @@
 package gosnmp
 
+import (
+	. "github.com/idawes/gosnmp/asn"
+	. "github.com/idawes/gosnmp/common"
+)
+
 type requestPool struct {
 	freeList         chan SnmpRequest
 	createNewRequest func() SnmpRequest

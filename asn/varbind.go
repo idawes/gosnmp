@@ -1,19 +1,19 @@
-package gosnmp
+package asn
 
 import (
 	"fmt"
+	. "github.com/idawes/gosnmp/common"
 	"net"
 )
 
 type Varbind interface {
 	//encodeValue returns the number of bytes written to the encoder
-	encodeValue(encoder *berEncoder) (int, error)
-	decodeValue(decoder *berDecoder, valueLength int) error
+	encodeValue(encoder *BerEncoder) (int, error)
 	getOid() ObjectIdentifier
 	setOid(oid ObjectIdentifier)
 }
 
-func (encoder *berEncoder) encodeVarbind(vb Varbind) (int, error) {
+func (encoder *BerEncoder) encodeVarbind(vb Varbind) (int, error) {
 	header := encoder.newHeader(SEQUENCE)
 	oidLen, err := encoder.encodeObjectIdentifier(vb.getOid())
 	if err != nil {
@@ -39,50 +39,6 @@ func (vb *baseVarbind) setOid(oid ObjectIdentifier) {
 	vb.oid = oid
 }
 
-type IntegerVarbind struct { // type 0x02
-	baseVarbind
-	val int32
-}
-
-func NewIntegerVarbind(oid ObjectIdentifier, val int32) *IntegerVarbind {
-	vb := new(IntegerVarbind)
-	vb.oid = oid
-	vb.val = val
-	return vb
-}
-
-func (vb *IntegerVarbind) encodeValue(encoder *berEncoder) (int, error) {
-	return encoder.encodeInteger(int64(vb.val)), nil
-}
-
-func (vb *IntegerVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	vb.val, err = decoder.decodeInt32(valueLength)
-	return
-}
-
-// BitStringVarbind is the structure to use when you want an ASN.1 BIT STRING type. A bit string is padded up to the nearest byte in memory
-// and the number of valid bits is recorded. Padding bits will be zero
-type BitStringVarbind struct { // type 0x03
-	baseVarbind
-	val *BitString
-}
-
-func NewBitStringVarbind(oid ObjectIdentifier, val *BitString) *BitStringVarbind {
-	vb := new(BitStringVarbind)
-	vb.oid = oid
-	vb.val = val
-	return vb
-}
-
-func (vb *BitStringVarbind) encodeValue(encoder *berEncoder) (int, error) {
-	return encoder.encodeBitString(vb.val), nil
-}
-
-func (vb *BitStringVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	vb.val, err = decoder.decodeBitString(valueLength)
-	return
-}
-
 type OctetStringVarbind struct { // type 0x04
 	baseVarbind
 	val []byte
@@ -95,16 +51,8 @@ func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind
 	return vb
 }
 
-func (vb *OctetStringVarbind) encodeValue(encoder *berEncoder) (int, error) {
+func (vb *OctetStringVarbind) encodeValue(encoder *BerEncoder) (int, error) {
 	return encoder.encodeOctetString(vb.val), nil
-}
-
-func (vb *OctetStringVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	vb.val = make([]byte, valueLength)
-	if numRead, err := decoder.Read(vb.val); err != nil || numRead != valueLength {
-		return fmt.Errorf("Couldn't decode octet string of length %d. Number of bytes read from stream: %d, err: %s", valueLength, numRead, err)
-	}
-	return
 }
 
 type NullVarbind struct { // type 0x05
@@ -117,15 +65,8 @@ func NewNullVarbind(oid ObjectIdentifier) *NullVarbind {
 	return vb
 }
 
-func (vb *NullVarbind) encodeValue(encoder *berEncoder) (int, error) {
+func (vb *NullVarbind) encodeValue(encoder *BerEncoder) (int, error) {
 	return encoder.encodeNull(), nil
-}
-
-func (vb *NullVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	if valueLength != 0 {
-		return fmt.Errorf("Non-zero value length found for NULL varbind: %d", valueLength)
-	}
-	return
 }
 
 type ObjectIdentifierVarbind struct { // type 0x06
@@ -140,13 +81,8 @@ func NewObjectIdentifierVarbind(oid ObjectIdentifier, val ObjectIdentifier) *Obj
 	return vb
 }
 
-func (vb *ObjectIdentifierVarbind) encodeValue(encoder *berEncoder) (int, error) {
+func (vb *ObjectIdentifierVarbind) encodeValue(encoder *BerEncoder) (int, error) {
 	return encoder.encodeObjectIdentifier(vb.val)
-}
-
-func (vb *ObjectIdentifierVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	vb.val, err = decoder.decodeObjectIdentifier(valueLength)
-	return
 }
 
 type IPv4AddressVarbind struct { // type 0x40
@@ -161,13 +97,8 @@ func NewIPv4AddressVarbind(oid ObjectIdentifier, val net.IP) *IPv4AddressVarbind
 	return vb
 }
 
-func (vb *IPv4AddressVarbind) encodeValue(encoder *berEncoder) (int, error) {
+func (vb *IPv4AddressVarbind) encodeValue(encoder *BerEncoder) (int, error) {
 	return encoder.encodeIPv4Address(vb.val)
-}
-
-func (vb *IPv4AddressVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	vb.val, err = decoder.decodeIPv4Address(valueLength)
-	return
 }
 
 type Counter32Varbind struct { // type 0x41
@@ -247,7 +178,7 @@ func NewUint32Varbind(oid ObjectIdentifier) *Uint32Varbind {
 	return vb
 }
 
-func decodeVarbind(decoder *berDecoder) (varbind Varbind, err error) {
+func decodeVarbind(decoder *BerDecoder) (varbind Varbind, err error) {
 	varbindHeaderType, varbindLength, err := decoder.decodeHeader()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to decode varbind header - err: %s", err)

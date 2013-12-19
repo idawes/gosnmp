@@ -1,7 +1,8 @@
-package gosnmp
+package asn
 
 import (
 	"fmt"
+	. "github.com/idawes/gosnmp/common"
 	"math"
 )
 
@@ -22,7 +23,7 @@ func (oid ObjectIdentifier) Equal(other ObjectIdentifier) bool {
 }
 
 // encodeObjectIdentifier writes an object identifier to the encoder. It returns the number of bytes written to the encoder
-func (encoder *berEncoder) encodeObjectIdentifier(oid ObjectIdentifier) (int, error) {
+func (encoder *BerEncoder) encodeObjectIdentifier(oid ObjectIdentifier) (int, error) {
 	if len(oid) < 2 || oid[0] > 6 || oid[1] >= 40 {
 		return 0, fmt.Errorf("Invalid oid: %v", oid)
 	}
@@ -36,7 +37,7 @@ func (encoder *berEncoder) encodeObjectIdentifier(oid ObjectIdentifier) (int, er
 	return encodedLength, nil
 }
 
-func (decoder *berDecoder) decodeObjectIdentifierWithHeader() (ObjectIdentifier, error) {
+func (decoder *BerDecoder) decodeObjectIdentifierWithHeader() (ObjectIdentifier, error) {
 	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
@@ -48,7 +49,7 @@ func (decoder *berDecoder) decodeObjectIdentifierWithHeader() (ObjectIdentifier,
 	return decoder.decodeObjectIdentifier(blockLength)
 }
 
-func (decoder *berDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifier, error) {
+func (decoder *BerDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifier, error) {
 	if numBytes > decoder.Len() {
 		return nil, fmt.Errorf("Length %d for object identifier exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}
@@ -85,4 +86,25 @@ func (decoder *berDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifie
 	}
 	oid = oid[0 : numVals+1]
 	return oid, nil
+}
+
+func (decoder *BerDecoder) decodeBase128Int() (int64, error) {
+	var val int64
+	numBytesRead := 0
+	for ; ; numBytesRead++ {
+		if numBytesRead == 4 {
+			return 0, fmt.Errorf("Base 128 integer too large at pos %d", decoder.pos)
+		}
+		val <<= 7
+		b, err := decoder.ReadByte()
+		if err != nil {
+			return 0, fmt.Errorf("Couldn't read byte %d of base 128 integer at pos %d", numBytesRead+1, decoder.pos)
+		}
+		val |= int64(b & 0x7f)
+		if b&0x80 == 0 {
+			break
+		}
+	}
+	decoder.pos += numBytesRead + 1
+	return val, nil
 }

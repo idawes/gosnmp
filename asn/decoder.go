@@ -1,22 +1,23 @@
-package gosnmp
+package asn
 
 import (
 	"bytes"
 	"fmt"
+	. "github.com/idawes/gosnmp/common"
 )
 
-type berDecoder struct {
+type BerDecoder struct {
 	*bytes.Buffer
 	pos int
 }
 
-func newBerDecoder(msg []byte) *berDecoder {
-	decoder := berDecoder{bytes.NewBuffer(msg), 0}
+func newBerDecoder(msg []byte) *BerDecoder {
+	decoder := BerDecoder{bytes.NewBuffer(msg), 0}
 	return &decoder
 }
 
 // decodeHeader pulls an ASN.1 block header from the decoder. It returns the decoded type and length of the block.
-func (decoder *berDecoder) decodeHeader() (snmpBlockType, int, error) {
+func (decoder *BerDecoder) decodeHeader() (SnmpBlockType, int, error) {
 	blockType, err := decoder.ReadByte()
 	if err != nil {
 		return 0, 0, fmt.Errorf("Couldn't read byte at pos %d, err: %s", decoder.pos, err)
@@ -29,11 +30,11 @@ func (decoder *berDecoder) decodeHeader() (snmpBlockType, int, error) {
 	if blockLength > decoder.Len() {
 		return 0, 0, fmt.Errorf("Length %d for block exceeds remaining message length %d", blockLength, decoder.Len())
 	}
-	return snmpBlockType(blockType), blockLength, nil
+	return SnmpBlockType(blockType), blockLength, nil
 }
 
 // Note: returned length will never be negative.
-func (decoder *berDecoder) decodeLength() (int, error) {
+func (decoder *BerDecoder) decodeLength() (int, error) {
 	var length int
 	firstByte, err := decoder.ReadByte()
 	if err != nil {
@@ -60,7 +61,7 @@ func (decoder *berDecoder) decodeLength() (int, error) {
 }
 
 // decodeValue pulls a single basic value TLV from the decoder. It returns the value's type and the value as a generic.
-func (decoder *berDecoder) decodeValue() (snmpBlockType, interface{}, error) {
+func (decoder *BerDecoder) decodeValue() (SnmpBlockType, interface{}, error) {
 	valueType, valueLength, err := decoder.decodeHeader()
 	if err != nil {
 		return 0, nil, fmt.Errorf("Unable to decode value header at pos %d - err: %s", decoder.pos, err)
@@ -97,43 +98,4 @@ func (decoder *berDecoder) decodeValue() (snmpBlockType, interface{}, error) {
 		return 0, nil, fmt.Errorf("Unknown value type 0x%x", valueType)
 	}
 	return valueType, value, nil
-}
-
-func (decoder *berDecoder) decode2sComplementInt(numBytes int) (int64, error) {
-	var val int64
-	for i := 0; i < numBytes; i++ {
-		temp, err := decoder.ReadByte()
-		if err != nil {
-			return 0, fmt.Errorf("Couldn't read byte at pos %d, err: %s", decoder.pos, err)
-		}
-		decoder.pos++
-		val <<= 8
-		val |= int64(temp)
-	}
-
-	// Shift up and down in order to sign extend the result.
-	val <<= 64 - uint8(numBytes)*8
-	val >>= 64 - uint8(numBytes)*8
-	return val, nil
-}
-
-func (decoder *berDecoder) decodeBase128Int() (int64, error) {
-	var val int64
-	numBytesRead := 0
-	for ; ; numBytesRead++ {
-		if numBytesRead == 4 {
-			return 0, fmt.Errorf("Base 128 integer too large at pos %d", decoder.pos)
-		}
-		val <<= 7
-		b, err := decoder.ReadByte()
-		if err != nil {
-			return 0, fmt.Errorf("Couldn't read byte %d of base 128 integer at pos %d", numBytesRead+1, decoder.pos)
-		}
-		val |= int64(b & 0x7f)
-		if b&0x80 == 0 {
-			break
-		}
-	}
-	decoder.pos += numBytesRead + 1
-	return val, nil
 }

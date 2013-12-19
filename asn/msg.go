@@ -1,12 +1,13 @@
-package gosnmp
+package asn
 
 import (
 	"fmt"
+	. "github.com/idawes/gosnmp/common"
 	"net"
 	"time"
 )
 
-type PDUType snmpBlockType
+type PDUType SnmpBlockType
 
 const (
 	GET_REQUEST      PDUType = 0xa0
@@ -36,8 +37,8 @@ func (pduType *PDUType) String() string {
 }
 
 type SnmpMessage interface {
-	encode(encoderFactory *berEncoderFactory) ([]byte, error)
-	decode(decoder *berDecoder) error
+	encode(encoderFactory *BerEncoderFactory) ([]byte, error)
+	decode(decoder *BerDecoder) error
 	getAddress() *net.UDPAddr
 	setAddress(*net.UDPAddr)
 	getVersion() SnmpVersion
@@ -52,19 +53,19 @@ type SnmpRequest interface {
 	AddOid(oid ObjectIdentifier)
 	AddOids(oids []ObjectIdentifier)
 	GetFlightTime() time.Duration
-	wait()
-	notify()
-	setRequestId(requestId uint32)
-	getRequestId() uint32
-	isRetryRequired() bool
-	startTimer(func(SnmpRequest))
-	stopTimer()
-	setResponse(resp SnmpResponse)
-	setError(err error)
+	Wait()
+	Notify()
+	SetRequestId(requestId uint32)
+	GetRequestId() uint32
+	IsRetryRequired() bool
+	StartTimer(func(SnmpRequest))
+	StopTimer()
+	SetResponse(resp SnmpResponse)
+	SetError(err error)
 }
 
 type SnmpResponse interface {
-	getRequestId() uint32
+	GetRequestId() uint32
 }
 
 type V2cMessage interface {
@@ -102,7 +103,7 @@ func (msg *baseMsg) setAddress(addr *net.UDPAddr) {
 	msg.address = addr
 }
 
-func (msg *baseMsg) decodeVarbinds(decoder *berDecoder) (err error) {
+func (msg *baseMsg) decodeVarbinds(decoder *BerDecoder) (err error) {
 	varbindsListType, varbindsListLength, err := decoder.decodeHeader()
 	if err != nil {
 		return fmt.Errorf("Unable to decode varbinds list header - err: %s", err)
@@ -143,7 +144,7 @@ func (msg *communityMessage) setCommunity(community string) {
 	msg.community = community
 }
 
-func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (snmpCommunityMessage, error) {
+func decodeCommunityMessage(decoder *BerDecoder, version SnmpVersion) (snmpCommunityMessage, error) {
 	communityBytes, err := decoder.decodeOctetStringWithHeader()
 	if err != nil {
 		return nil, err
@@ -200,21 +201,21 @@ func (msg *communityRequestResponse) GetLoggingId() string {
 	return fmt.Sprintf("%s:%d", msg.pduType.String(), msg.requestId)
 }
 
-func (msg *communityRequestResponse) setRequestId(requestId uint32) {
+func (msg *communityRequestResponse) SetRequestId(requestId uint32) {
 	msg.requestId = requestId
 }
 
-func (msg *communityRequestResponse) getRequestId() uint32 {
+func (msg *communityRequestResponse) GetRequestId() uint32 {
 	return msg.requestId
 }
 
-func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) ([]byte, error) {
+func (msg *communityRequestResponse) Encode(encoderFactory *BerEncoderFactory) ([]byte, error) {
 	encoder := encoderFactory.newBerEncoder()
 	defer encoder.destroy()
 	msgHeader := encoder.newHeader(SEQUENCE)
 	headerFieldsLen := encoder.encodeInteger(int64(msg.version))
 	headerFieldsLen += encoder.encodeOctetString([]byte(msg.community))
-	pduHeader := encoder.newHeader(snmpBlockType(msg.pduType))
+	pduHeader := encoder.newHeader(SnmpBlockType(msg.pduType))
 	pduControlFieldsLen := encoder.encodeInteger(int64(msg.requestId))
 	pduControlFieldsLen += encoder.encodeInteger(int64(msg.errorVal))
 	pduControlFieldsLen += encoder.encodeInteger(int64(msg.errorIdx))
@@ -233,7 +234,7 @@ func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) (
 	return encoder.serialize(), nil
 }
 
-func (msg *communityRequestResponse) decode(decoder *berDecoder) error {
+func (msg *communityRequestResponse) decode(decoder *BerDecoder) error {
 	var err error
 	if msg.requestId, err = decoder.decodeUint32WithHeader(); err != nil {
 		return err
@@ -270,13 +271,13 @@ func (req *CommunityRequest) GetFlightTime() time.Duration {
 	return req.flightTime
 }
 
-func (req *CommunityRequest) startTimer(timeoutFunc func(SnmpRequest)) {
+func (req *CommunityRequest) StartTimer(timeoutFunc func(SnmpRequest)) {
 	req.timeoutFunc = timeoutFunc
 	req.flightStartTime = time.Now()
 	req.timer = time.AfterFunc(time.Duration(req.timeoutSeconds)*time.Second, req.handleTimeout)
 }
 
-func (req *CommunityRequest) stopTimer() {
+func (req *CommunityRequest) StopTimer() {
 	req.timer.Stop()
 	req.flightTime = time.Since(req.flightStartTime)
 }
@@ -286,7 +287,7 @@ func (req *CommunityRequest) handleTimeout() {
 	req.timeoutFunc(req)
 }
 
-func (req *CommunityRequest) isRetryRequired() bool {
+func (req *CommunityRequest) IsRetryRequired() bool {
 	if req.retriesRemaining > 0 {
 		req.retriesRemaining--
 		return true
@@ -306,19 +307,19 @@ func (req *CommunityRequest) AddOids(oids []ObjectIdentifier) {
 	req.varbinds = append(req.varbinds, temp...)
 }
 
-func (req *CommunityRequest) wait() {
+func (req *CommunityRequest) Wait() {
 	<-req.requestDoneChan
 }
 
-func (req *CommunityRequest) notify() {
+func (req *CommunityRequest) Notify() {
 	req.requestDoneChan <- true
 }
 
-func (req *CommunityRequest) setResponse(resp SnmpResponse) {
+func (req *CommunityRequest) SetResponse(resp SnmpResponse) {
 	req.response = resp
 }
 
-func (req *CommunityRequest) setError(err error) {
+func (req *CommunityRequest) SetError(err error) {
 	req.err = err
 }
 
@@ -351,13 +352,13 @@ func (msg *V1Trap) GetLoggingId() string {
 	return fmt.Sprintf("%s:%d", msg.pduType, msg.timeStamp)
 }
 
-func (msg *V1Trap) encode(encoderFactory *berEncoderFactory) ([]byte, error) {
+func (msg *V1Trap) encode(encoderFactory *BerEncoderFactory) ([]byte, error) {
 	encoder := encoderFactory.newBerEncoder()
 	defer encoder.destroy()
 	msgHeader := encoder.newHeader(SEQUENCE)
 	headerFieldsLen := encoder.encodeInteger(int64(msg.version))
 	headerFieldsLen += encoder.encodeOctetString([]byte(msg.community))
-	pduHeader := encoder.newHeader(snmpBlockType(msg.pduType))
+	pduHeader := encoder.newHeader(SnmpBlockType(msg.pduType))
 	varbindsListHeader := encoder.newHeader(SEQUENCE)
 	varbindsLen := 0
 	for _, varbind := range msg.varbinds {
@@ -374,7 +375,7 @@ func (msg *V1Trap) encode(encoderFactory *berEncoderFactory) ([]byte, error) {
 	return encoder.serialize(), nil
 }
 
-func (msg *V1Trap) decode(decoder *berDecoder) (err error) {
+func (msg *V1Trap) decode(decoder *BerDecoder) (err error) {
 	return
 }
 

@@ -3,6 +3,7 @@ package gosnmp
 import (
 	"errors"
 	"fmt"
+	. "github.com/idawes/gosnmp/asn"
 	"net"
 	"strconv"
 	"sync"
@@ -58,7 +59,7 @@ func (client *V2cClient) SendRequest(req *CommunityRequest) {
 	req.timeoutSeconds = client.TimeoutSeconds
 	req.retriesRemaining = client.Retries
 	client.snmpContext.sendRequest(req)
-	req.wait()
+	req.Wait()
 	return
 }
 
