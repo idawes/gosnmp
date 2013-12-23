@@ -1,8 +1,7 @@
-package asn
+package gosnmp
 
 import (
 	"fmt"
-	. "github.com/idawes/gosnmp/common"
 )
 
 // BitString is the structure to use when you want an ASN.1 BIT STRING type. A bit string is padded up to the nearest byte in memory
@@ -66,14 +65,14 @@ func NewBitStringVarbind(oid ObjectIdentifier, val *BitString) *BitStringVarbind
 	return vb
 }
 
-func (vb *BitStringVarbind) encodeValue(encoder *BerEncoder) (int, error) {
+func (vb *BitStringVarbind) encodeValue(encoder *berEncoder) (int, error) {
 	return encoder.encodeBitString(vb.val), nil
 }
 
 ///////////////////////////////////////////////////////////////
 // BitString BER encode
-func (encoder *BerEncoder) encodeBitString(val *BitString) int {
-	h := encoder.newHeader(BIT_STRING)
+func (encoder *berEncoder) encodeBitString(val *BitString) int {
+	h := encoder.newHeader(snmpBlockType_BIT_STRING)
 	buf := encoder.append()
 	numPaddingBits := byte((8 - val.bitLength%8) % 8)
 	buf.WriteByte(numPaddingBits)
@@ -84,7 +83,7 @@ func (encoder *BerEncoder) encodeBitString(val *BitString) int {
 
 ///////////////////////////////////////////////////////////////
 // BitString BER encode
-func (decoder *BerDecoder) decodeBitString(numBytes int) (*BitString, error) {
+func (decoder *berDecoder) decodeBitString(numBytes int) (*BitString, error) {
 	if numBytes < 1 {
 		return nil, fmt.Errorf("Invalid length for bit string: %d", numBytes)
 	}

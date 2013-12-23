@@ -3,7 +3,6 @@ package gosnmp
 import (
 	"errors"
 	"fmt"
-	. "github.com/idawes/gosnmp/asn"
 	"net"
 	"strconv"
 	"sync"
@@ -59,7 +58,7 @@ func (client *V2cClient) SendRequest(req *CommunityRequest) {
 	req.timeoutSeconds = client.TimeoutSeconds
 	req.retriesRemaining = client.Retries
 	client.snmpContext.sendRequest(req)
-	req.Wait()
+	req.wait()
 	return
 }
 
@@ -71,19 +70,19 @@ func (ctxt *ClientContext) AllocateV2cGetRequestWithOids(oids []ObjectIdentifier
 
 func (ctxt *ClientContext) AllocateV2cGetRequest() *CommunityRequest {
 	req := ctxt.allocateV2cRequest()
-	req.pduType = GET_REQUEST
+	req.pduType = pduType_GET_REQUEST
 	return req
 }
 
 func (ctxt *ClientContext) AllocateV2cGetNextRequest() *CommunityRequest {
 	req := ctxt.allocateV2cRequest()
-	req.pduType = GET_NEXT_REQUEST
+	req.pduType = pduType_GET_NEXT_REQUEST
 	return req
 }
 
 func (ctxt *ClientContext) AllocateV2cSetRequest() *CommunityRequest {
 	req := ctxt.allocateV2cRequest()
-	req.pduType = SET_REQUEST
+	req.pduType = pduType_SET_REQUEST
 	return req
 }
 

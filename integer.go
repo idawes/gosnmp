@@ -1,9 +1,8 @@
-package asn
+package gosnmp
 
 import (
 	"bytes"
 	"fmt"
-	. "github.com/idawes/gosnmp/common"
 )
 
 // IntegerVarbind stuff
@@ -19,19 +18,19 @@ func NewIntegerVarbind(oid ObjectIdentifier, val int32) *IntegerVarbind {
 	return vb
 }
 
-func (vb *IntegerVarbind) encodeValue(encoder *BerEncoder) (int, error) {
+func (vb *IntegerVarbind) encodeValue(encoder *berEncoder) (int, error) {
 	return encoder.encodeInteger(int64(vb.val)), nil
 }
 
-func (vb *IntegerVarbind) decodeValue(decoder *BerDecoder, valueLength int) (err error) {
+func (vb *IntegerVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
 	vb.val, err = decoder.decodeInt32(valueLength)
 	return
 }
 
 ////////////////////////////////////////////////////////////////////////////
 // Integer BER encode
-func (encoder *BerEncoder) encodeInteger(val int64) (encodedLength int) {
-	h := encoder.newHeader(INTEGER)
+func (encoder *berEncoder) encodeInteger(val int64) (encodedLength int) {
+	h := encoder.newHeader(snmpBlockType_INTEGER)
 	buf := encoder.append()
 	encode2sComplementInt(buf, val)
 	_, encodedLength = h.setContentLength(buf.Len())
@@ -83,7 +82,7 @@ func calculateBase128IntLen(val int64) int {
 
 ////////////////////////////////////////////////////////////////////////////
 // Integer BER decode
-func (decoder *BerDecoder) decodeIntegerWithHeader() (int64, error) {
+func (decoder *berDecoder) decodeIntegerWithHeader() (int64, error) {
 	blockLength, err := decoder.decodeIntegerHeader()
 	if err != nil {
 		return 0, err
@@ -91,23 +90,23 @@ func (decoder *BerDecoder) decodeIntegerWithHeader() (int64, error) {
 	return decoder.decodeInteger(blockLength)
 }
 
-func (decoder *BerDecoder) decodeIntegerHeader() (int, error) {
+func (decoder *berDecoder) decodeIntegerHeader() (int, error) {
 	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
 		return 0, err
 	}
-	if blockType != INTEGER {
-		return 0, fmt.Errorf("Expecting type INTEGER (0x%x) at pos %d, found 0x%x", INTEGER, startingPos, blockType)
+	if blockType != snmpBlockType_INTEGER {
+		return 0, fmt.Errorf("Expecting type snmpBlockType_INTEGER (0x%x) at pos %d, found 0x%x", snmpBlockType_INTEGER, startingPos, blockType)
 	}
 	return blockLength, nil
 }
 
-func (decoder *BerDecoder) decodeInteger(blockLength int) (int64, error) {
+func (decoder *berDecoder) decodeInteger(blockLength int) (int64, error) {
 	return decoder.decode2sComplementInt(blockLength)
 }
 
-func (decoder *BerDecoder) decode2sComplementInt(numBytes int) (int64, error) {
+func (decoder *berDecoder) decode2sComplementInt(numBytes int) (int64, error) {
 	var val int64
 	for i := 0; i < numBytes; i++ {
 		temp, err := decoder.ReadByte()
@@ -125,7 +124,7 @@ func (decoder *BerDecoder) decode2sComplementInt(numBytes int) (int64, error) {
 	return val, nil
 }
 
-func (decoder *BerDecoder) decodeInt32WithHeader() (int32, error) {
+func (decoder *berDecoder) decodeInt32WithHeader() (int32, error) {
 	blockLength, err := decoder.decodeIntegerHeader()
 	if err != nil {
 		return 0, err
@@ -133,7 +132,7 @@ func (decoder *BerDecoder) decodeInt32WithHeader() (int32, error) {
 	return decoder.decodeInt32(blockLength)
 }
 
-func (decoder *BerDecoder) decodeInt32(valueLength int) (int32, error) {
+func (decoder *berDecoder) decodeInt32(valueLength int) (int32, error) {
 	startingPos := decoder.pos
 	rawVal, err := decoder.decodeInteger(valueLength)
 	if err != nil {
@@ -146,7 +145,7 @@ func (decoder *BerDecoder) decodeInt32(valueLength int) (int32, error) {
 	return val, nil
 }
 
-func (decoder *BerDecoder) decodeUint32WithHeader() (uint32, error) {
+func (decoder *berDecoder) decodeUint32WithHeader() (uint32, error) {
 	blockLength, err := decoder.decodeIntegerHeader()
 	if err != nil {
 		return 0, err
@@ -154,7 +153,7 @@ func (decoder *BerDecoder) decodeUint32WithHeader() (uint32, error) {
 	return decoder.decodeUint32(blockLength)
 }
 
-func (decoder *BerDecoder) decodeUint32(valueLength int) (uint32, error) {
+func (decoder *berDecoder) decodeUint32(valueLength int) (uint32, error) {
 	startingPos := decoder.pos
 	rawVal, err := decoder.decodeInteger(valueLength)
 	if err != nil {

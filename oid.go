@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// A bunch of MIB-2 common oids.
+// A bunch of commonly used MIB-2 oids.
 var (
 	SYS_DESCR_OID     = []uint32{1, 3, 5, 1, 2, 1, 1, 1}
 	SYS_OBJECT_ID_OID = []uint32{1, 3, 5, 1, 2, 1, 1, 2}

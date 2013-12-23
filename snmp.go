@@ -3,8 +3,6 @@ package gosnmp
 import (
 	"fmt"
 	"github.com/davecgh/go-spew/spew"
-	. "github.com/idawes/gosnmp/asn"
-	. "github.com/idawes/gosnmp/common"
 	"math"
 	"net"
 	"strings"
@@ -59,7 +57,7 @@ type snmpContext struct {
 	outstandingRequests map[uint32]SnmpRequest
 
 	//
-	BerEncoderFactory           *BerEncoderFactory
+	berEncoderFactory           *berEncoderFactory
 	outboundFlowControlQueue    chan SnmpMessage
 	outboundFlowControlShutdown chan bool
 
@@ -70,7 +68,7 @@ type snmpContext struct {
 	outboundDied                 chan bool
 	inboundDied                  chan bool
 
-	statIncrementNotifications chan snmpContextStatType
+	statIncrementNotifications chan StatType
 	statRequests               chan snmpContextStatRequest
 
 	communityRequestPool *requestPool
@@ -96,7 +94,7 @@ func newContext(name string, maxTargets int, startRequestTracker bool, port int,
 	ctxt.Logger = logger
 	ctxt.maxTargets = maxTargets
 	ctxt.port = port
-	ctxt.BerEncoderFactory = NewBerEncoderFactory(logger)
+	ctxt.berEncoderFactory = newberEncoderFactory(logger)
 	ctxt.outboundFlowControlQueue = make(chan SnmpMessage, ctxt.maxTargets)
 	ctxt.outboundFlowControlShutdown = make(chan bool)
 	ctxt.externalShutdownNotification = make(chan bool)
@@ -159,50 +157,50 @@ func (ctxt *snmpContext) monitor() {
 // *******************************************************************
 // --------------------------- STATS TRACKING ------------------------
 
-type snmpContextStatType int
+type StatType int
 
 const (
-	INBOUND_CONNECTION_DEATH snmpContextStatType = iota
-	INBOUND_CONNECTION_CLOSE
-	OUTBOUND_CONNECTION_DEATH
-	OUTBOUND_CONNECTION_CLOSE
-	INBOUND_MESSAGES_RECEIVED
-	INBOUND_MESSAGES_UNDECODABLE
-	OUTBOUND_MESSAGES_SENT
-	RESPONSES_RECEIVED
-	RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT
-	REQUESTS_SENT
-	REQUESTS_FORWARDED_TO_FLOW_CONTROL
-	REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED
-	REQUESTS_TIMED_OUT
-	REQUESTS_RETRIES_EXHAUSTED
-	UNDECODABLE_MESSAGES_RECEIVED
-	GET_REQUESTS_RECEIVED
-	GET_BULK_REQUESTS_RECEIVED
-	SET_REQUESTS_RECEIVED
-	GET_RESPONSES_RECEIVED
+	StatType_INBOUND_CONNECTION_DEATH StatType = iota
+	StatType_INBOUND_CONNECTION_CLOSE
+	StatType_OUTBOUND_CONNECTION_DEATH
+	StatType_OUTBOUND_CONNECTION_CLOSE
+	StatType_INBOUND_MESSAGES_RECEIVED
+	StatType_INBOUND_MESSAGES_UNDECODABLE
+	StatType_OUTBOUND_MESSAGES_SENT
+	StatType_RESPONSES_RECEIVED
+	StatType_RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT
+	StatType_REQUESTS_SENT
+	StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL
+	StatType_REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED
+	StatType_REQUESTS_TIMED_OUT
+	StatType_REQUESTS_RETRIES_EXHAUSTED
+	StatType_UNDECODABLE_MESSAGES_RECEIVED
+	StatType_GET_REQUESTS_RECEIVED
+	StatType_GET_BULK_REQUESTS_RECEIVED
+	StatType_SET_REQUESTS_RECEIVED
+	StatType_GET_RESPONSES_RECEIVED
 )
 
 type snmpContextStatRequest struct {
 	allStats     bool
-	singleStat   snmpContextStatType
+	singleStat   StatType
 	bin          uint8
 	responseChan chan interface{}
 }
 
 func (ctxt *snmpContext) startStatTracker() {
-	ctxt.statIncrementNotifications = make(chan snmpContextStatType, 100) // add some buffering to reduce likelihood of impacting throughput
+	ctxt.statIncrementNotifications = make(chan StatType, 100) // add some buffering to reduce likelihood of impacting throughput
 	ctxt.statRequests = make(chan snmpContextStatRequest)
 	go ctxt.trackStats()
 }
 
 type SnmpStatsBin struct {
-	Stats      map[snmpContextStatType]int
+	Stats      map[StatType]int
 	NumSeconds int
 }
 
 func newSnmpStatsBin() *SnmpStatsBin {
-	return &SnmpStatsBin{make(map[snmpContextStatType]int), 0}
+	return &SnmpStatsBin{make(map[StatType]int), 0}
 }
 
 func (bin *SnmpStatsBin) copy() *SnmpStatsBin {
@@ -258,11 +256,11 @@ func (ctxt *snmpContext) trackStats() {
 	}
 }
 
-func (ctxt *snmpContext) incrementStat(statType snmpContextStatType) {
+func (ctxt *snmpContext) incrementStat(statType StatType) {
 	ctxt.statIncrementNotifications <- statType
 }
 
-func (ctxt *snmpContext) GetStat(statType snmpContextStatType, bin uint8) (int, error) {
+func (ctxt *snmpContext) GetStat(statType StatType, bin uint8) (int, error) {
 	responseChan := make(chan interface{})
 	ctxt.statRequests <- snmpContextStatRequest{singleStat: statType, bin: bin, responseChan: responseChan}
 	resp := <-responseChan
@@ -310,7 +308,7 @@ func (ctxt *snmpContext) startRequestTracker(maxTargets int) {
 }
 
 func (ctxt *snmpContext) sendRequest(req SnmpRequest) {
-	ctxt.incrementStat(REQUESTS_SENT)
+	ctxt.incrementStat(StatType_REQUESTS_SENT)
 	ctxt.requestsFromClients <- req
 }
 
@@ -325,41 +323,41 @@ func (ctxt *snmpContext) trackRequests() {
 		select {
 		case req = <-ctxt.requestsFromClients:
 			nextRequestId += 1
-			req.SetRequestId(nextRequestId)
+			req.setRequestId(nextRequestId)
 			ctxt.outstandingRequests[nextRequestId] = req
-			req.StartTimer(ctxt.handleRequestTimeout)
-			ctxt.incrementStat(REQUESTS_FORWARDED_TO_FLOW_CONTROL)
+			req.startTimer(ctxt.handleRequestTimeout)
+			ctxt.incrementStat(StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL)
 			ctxt.outboundFlowControlQueue <- req
 
 		case resp = <-ctxt.responsesFromAgents:
-			req = ctxt.outstandingRequests[resp.GetRequestId()]
+			req = ctxt.outstandingRequests[resp.getRequestId()]
 			if req == nil {
-				ctxt.incrementStat(RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT)
+				ctxt.incrementStat(StatType_RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT)
 				continue // most likely we've already timed out the request.
 			}
-			delete(ctxt.outstandingRequests, req.GetRequestId())
-			req.StopTimer()
-			req.SetResponse(resp)
-			ctxt.incrementStat(RESPONSES_RECEIVED)
-			req.Notify()
+			delete(ctxt.outstandingRequests, req.getRequestId())
+			req.stopTimer()
+			req.setResponse(resp)
+			ctxt.incrementStat(StatType_RESPONSES_RECEIVED)
+			req.notify()
 
 		case requestId := <-ctxt.requestTimeouts:
 			req = ctxt.outstandingRequests[requestId]
 			if req == nil {
-				ctxt.incrementStat(REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED)
+				ctxt.incrementStat(StatType_REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED)
 				continue
 			}
-			if req.IsRetryRequired() {
-				req.StartTimer(ctxt.handleRequestTimeout)
-				ctxt.incrementStat(REQUESTS_TIMED_OUT)
-				ctxt.incrementStat(REQUESTS_FORWARDED_TO_FLOW_CONTROL)
+			if req.isRetryRequired() {
+				req.startTimer(ctxt.handleRequestTimeout)
+				ctxt.incrementStat(StatType_REQUESTS_TIMED_OUT)
+				ctxt.incrementStat(StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL)
 				ctxt.outboundFlowControlQueue <- req
 			} else {
-				delete(ctxt.outstandingRequests, req.GetRequestId())
-				req.SetError(TimeoutError{})
-				ctxt.incrementStat(REQUESTS_RETRIES_EXHAUSTED)
+				delete(ctxt.outstandingRequests, req.getRequestId())
+				req.setError(TimeoutError{})
+				ctxt.incrementStat(StatType_REQUESTS_RETRIES_EXHAUSTED)
 				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, req.GetLoggingId())
-				req.Notify()
+				req.notify()
 			}
 
 		case <-ctxt.internalShutdownNotification:
@@ -370,7 +368,7 @@ func (ctxt *snmpContext) trackRequests() {
 }
 
 func (ctxt *snmpContext) handleRequestTimeout(req SnmpRequest) {
-	ctxt.requestTimeouts <- req.GetRequestId()
+	ctxt.requestTimeouts <- req.getRequestId()
 }
 
 // func (ctxt *snmpContext) sendResponse(resp SnmpResponse) {
@@ -386,7 +384,7 @@ func (ctxt *snmpContext) processOutboundQueue() {
 	for {
 		select {
 		case msg := <-ctxt.outboundFlowControlQueue:
-			encodedMsg, err := msg.Encode(ctxt.BerEncoderFactory)
+			encodedMsg, err := msg.encode(ctxt.berEncoderFactory)
 			if err != nil {
 				ctxt.Debugf("Couldn't encode message: err: %s. Message:\n%s", err, spew.Sdump(msg))
 				continue
@@ -394,14 +392,14 @@ func (ctxt *snmpContext) processOutboundQueue() {
 			if n, err := ctxt.conn.WriteToUDP(encodedMsg, msg.getAddress()); err != nil || n != len(encodedMsg) {
 				if strings.HasSuffix(err.Error(), "closed network connection") {
 					ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to closed connection", ctxt.name)
-					ctxt.incrementStat(OUTBOUND_CONNECTION_CLOSE)
+					ctxt.incrementStat(StatType_OUTBOUND_CONNECTION_CLOSE)
 				} else {
 					ctxt.Errorf("Ctxt %s: UDP write failed, err: %s, numWritten: %d, expected: %d", err, n, len(encodedMsg))
-					ctxt.incrementStat(OUTBOUND_CONNECTION_DEATH)
+					ctxt.incrementStat(StatType_OUTBOUND_CONNECTION_DEATH)
 				}
 				return
 			}
-			ctxt.incrementStat(OUTBOUND_MESSAGES_SENT)
+			ctxt.incrementStat(StatType_OUTBOUND_MESSAGES_SENT)
 		case <-ctxt.outboundFlowControlShutdown:
 			ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to shutdown message", ctxt.name)
 			return
@@ -443,14 +441,14 @@ func (ctxt *snmpContext) listen() {
 		if err != nil {
 			if strings.HasSuffix(err.Error(), "closed network connection") {
 				ctxt.Debugf("Ctxt %s: incoming message listener shutting down", ctxt.name)
-				ctxt.incrementStat(INBOUND_CONNECTION_CLOSE)
+				ctxt.incrementStat(StatType_INBOUND_CONNECTION_CLOSE)
 			} else {
 				ctxt.Errorf("Ctxt %s: UDP read error: %#v, readLen: %d. snmpContext shutting down", ctxt.name, err, readLen)
-				ctxt.incrementStat(INBOUND_CONNECTION_DEATH)
+				ctxt.incrementStat(StatType_INBOUND_CONNECTION_DEATH)
 			}
 			return
 		} else {
-			ctxt.incrementStat(INBOUND_MESSAGES_RECEIVED)
+			ctxt.incrementStat(StatType_INBOUND_MESSAGES_RECEIVED)
 			ctxt.processIncomingMessage(msg[0:readLen], addr)
 		}
 	}
@@ -459,28 +457,28 @@ func (ctxt *snmpContext) listen() {
 func (ctxt *snmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 	decodedMsg, err := decodeMsg(msg)
 	if err != nil {
-		ctxt.incrementStat(UNDECODABLE_MESSAGES_RECEIVED)
+		ctxt.incrementStat(StatType_UNDECODABLE_MESSAGES_RECEIVED)
 		if ctxt.logDecodeErrors {
 			ctxt.Debugf("Ctxt %s: Couldn't decode message % #x. Err: %s\n", ctxt.name, msg, err)
 		}
 		return
 	}
 	decodedMsg.setAddress(addr)
-	switch decodedMsg.getPduType() {
-	case GET_REQUEST:
-		ctxt.incrementStat(GET_REQUESTS_RECEIVED)
+	switch decodedMsg.getpduType() {
+	case pduType_GET_REQUEST:
+		ctxt.incrementStat(StatType_GET_REQUESTS_RECEIVED)
 		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
-	case GET_BULK_REQUEST:
-		ctxt.incrementStat(GET_BULK_REQUESTS_RECEIVED)
+	case pduType_GET_BULK_REQUEST:
+		ctxt.incrementStat(StatType_GET_BULK_REQUESTS_RECEIVED)
 		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
-	case SET_REQUEST:
-		ctxt.incrementStat(SET_REQUESTS_RECEIVED)
+	case pduType_SET_REQUEST:
+		ctxt.incrementStat(StatType_SET_REQUESTS_RECEIVED)
 		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
-	case GET_RESPONSE:
-		ctxt.incrementStat(GET_RESPONSES_RECEIVED)
+	case pduType_GET_RESPONSE:
+		ctxt.incrementStat(StatType_GET_RESPONSES_RECEIVED)
 		ctxt.responsesFromAgents <- decodedMsg.(SnmpResponse)
-	case V1_TRAP:
-	case V2_TRAP:
+	case pduType_V1_TRAP:
+	case pduType_V2_TRAP:
 	}
 }
 

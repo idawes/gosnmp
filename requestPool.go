@@ -1,9 +1,6 @@
 package gosnmp
 
-import (
-	. "github.com/idawes/gosnmp/asn"
-	. "github.com/idawes/gosnmp/common"
-)
+import ()
 
 type requestPool struct {
 	freeList         chan SnmpRequest

@@ -1,8 +1,7 @@
-package asn
+package gosnmp
 
 import (
 	"fmt"
-	. "github.com/idawes/gosnmp/common"
 	"math"
 )
 
@@ -23,11 +22,11 @@ func (oid ObjectIdentifier) Equal(other ObjectIdentifier) bool {
 }
 
 // encodeObjectIdentifier writes an object identifier to the encoder. It returns the number of bytes written to the encoder
-func (encoder *BerEncoder) encodeObjectIdentifier(oid ObjectIdentifier) (int, error) {
+func (encoder *berEncoder) encodeObjectIdentifier(oid ObjectIdentifier) (int, error) {
 	if len(oid) < 2 || oid[0] > 6 || oid[1] >= 40 {
 		return 0, fmt.Errorf("Invalid oid: %v", oid)
 	}
-	h := encoder.newHeader(OBJECT_IDENTIFIER)
+	h := encoder.newHeader(snmpBlockType_OBJECT_IDENTIFIER)
 	buf := encoder.append()
 	buf.WriteByte(byte(oid[0]*40 + oid[1])) // first byte holds the first two identifiers in the oid
 	for i := 2; i < len(oid); i++ {         // remaining oid identifiers are marshalled as base 128 integers
@@ -37,19 +36,19 @@ func (encoder *BerEncoder) encodeObjectIdentifier(oid ObjectIdentifier) (int, er
 	return encodedLength, nil
 }
 
-func (decoder *BerDecoder) decodeObjectIdentifierWithHeader() (ObjectIdentifier, error) {
+func (decoder *berDecoder) decodeObjectIdentifierWithHeader() (ObjectIdentifier, error) {
 	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
 		return nil, err
 	}
-	if blockType != OBJECT_IDENTIFIER {
-		return nil, fmt.Errorf("Expecting type OBJECT_IDENTIFIER (0x%x), found 0x%x at pos %d", OBJECT_IDENTIFIER, blockType, startingPos)
+	if blockType != snmpBlockType_OBJECT_IDENTIFIER {
+		return nil, fmt.Errorf("Expecting type snmpBlockType_OBJECT_IDENTIFIER (0x%x), found 0x%x at pos %d", snmpBlockType_OBJECT_IDENTIFIER, blockType, startingPos)
 	}
 	return decoder.decodeObjectIdentifier(blockLength)
 }
 
-func (decoder *BerDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifier, error) {
+func (decoder *berDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifier, error) {
 	if numBytes > decoder.Len() {
 		return nil, fmt.Errorf("Length %d for object identifier exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}
@@ -88,7 +87,7 @@ func (decoder *BerDecoder) decodeObjectIdentifier(numBytes int) (ObjectIdentifie
 	return oid, nil
 }
 
-func (decoder *BerDecoder) decodeBase128Int() (int64, error) {
+func (decoder *berDecoder) decodeBase128Int() (int64, error) {
 	var val int64
 	numBytesRead := 0
 	for ; ; numBytesRead++ {

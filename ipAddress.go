@@ -1,37 +1,36 @@
-package asn
+package gosnmp
 
 import (
 	"fmt"
-	. "github.com/idawes/gosnmp/common"
 	"net"
 )
 
 // encodeIPv4Address writes an IPv4 address to the encoder. It returns the number of bytes written to the encoder
-func (encoder *BerEncoder) encodeIPv4Address(addr net.IP) (int, error) {
+func (encoder *berEncoder) encodeIPv4Address(addr net.IP) (int, error) {
 	ipv4Addr := addr.To4()
 	if ipv4Addr == nil {
 		return 0, fmt.Errorf("IP Address %s is not a valid v4 address", addr.String())
 	}
-	h := encoder.newHeader(IP_ADDRESS)
+	h := encoder.newHeader(snmpBlockType_IP_ADDRESS)
 	buf := encoder.append()
 	buf.Write(addr)
 	_, encodedLength := h.setContentLength(buf.Len())
 	return encodedLength, nil
 }
 
-func (decoder *BerDecoder) decodeIPv4AddressWithHeader() (net.IP, error) {
+func (decoder *berDecoder) decodeIPv4AddressWithHeader() (net.IP, error) {
 	startingPos := decoder.pos
 	blockType, blockLength, err := decoder.decodeHeader()
 	if err != nil {
 		return net.IPv4zero, err
 	}
-	if blockType != IP_ADDRESS {
-		return net.IPv4zero, fmt.Errorf("Expecting type IP_ADDRESS (0x%x), found 0x%x at pos %d", IP_ADDRESS, blockType, startingPos)
+	if blockType != snmpBlockType_IP_ADDRESS {
+		return net.IPv4zero, fmt.Errorf("Expecting type snmpBlockType_IP_ADDRESS (0x%x), found 0x%x at pos %d", snmpBlockType_IP_ADDRESS, blockType, startingPos)
 	}
 	return decoder.decodeIPv4Address(blockLength)
 }
 
-func (decoder *BerDecoder) decodeIPv4Address(numBytes int) (net.IP, error) {
+func (decoder *berDecoder) decodeIPv4Address(numBytes int) (net.IP, error) {
 	if numBytes > decoder.Len() {
 		return net.IPv4zero, fmt.Errorf("Length %d for IPv4 address exceeds available number of bytes %d at pos %d", numBytes, decoder.Len(), decoder.pos)
 	}

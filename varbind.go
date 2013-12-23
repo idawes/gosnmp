@@ -1,20 +1,19 @@
-package asn
+package gosnmp
 
 import (
 	"fmt"
-	. "github.com/idawes/gosnmp/common"
 	"net"
 )
 
 type Varbind interface {
 	//encodeValue returns the number of bytes written to the encoder
-	encodeValue(encoder *BerEncoder) (int, error)
+	encodeValue(encoder *berEncoder) (int, error)
 	getOid() ObjectIdentifier
 	setOid(oid ObjectIdentifier)
 }
 
-func (encoder *BerEncoder) encodeVarbind(vb Varbind) (int, error) {
-	header := encoder.newHeader(SEQUENCE)
+func (encoder *berEncoder) encodeVarbind(vb Varbind) (int, error) {
+	header := encoder.newHeader(snmpBlockType_SEQUENCE)
 	oidLen, err := encoder.encodeObjectIdentifier(vb.getOid())
 	if err != nil {
 		return 0, err
@@ -51,7 +50,7 @@ func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind
 	return vb
 }
 
-func (vb *OctetStringVarbind) encodeValue(encoder *BerEncoder) (int, error) {
+func (vb *OctetStringVarbind) encodeValue(encoder *berEncoder) (int, error) {
 	return encoder.encodeOctetString(vb.val), nil
 }
 
@@ -65,7 +64,7 @@ func NewNullVarbind(oid ObjectIdentifier) *NullVarbind {
 	return vb
 }
 
-func (vb *NullVarbind) encodeValue(encoder *BerEncoder) (int, error) {
+func (vb *NullVarbind) encodeValue(encoder *berEncoder) (int, error) {
 	return encoder.encodeNull(), nil
 }
 
@@ -81,7 +80,7 @@ func NewObjectIdentifierVarbind(oid ObjectIdentifier, val ObjectIdentifier) *Obj
 	return vb
 }
 
-func (vb *ObjectIdentifierVarbind) encodeValue(encoder *BerEncoder) (int, error) {
+func (vb *ObjectIdentifierVarbind) encodeValue(encoder *berEncoder) (int, error) {
 	return encoder.encodeObjectIdentifier(vb.val)
 }
 
@@ -97,7 +96,7 @@ func NewIPv4AddressVarbind(oid ObjectIdentifier, val net.IP) *IPv4AddressVarbind
 	return vb
 }
 
-func (vb *IPv4AddressVarbind) encodeValue(encoder *BerEncoder) (int, error) {
+func (vb *IPv4AddressVarbind) encodeValue(encoder *berEncoder) (int, error) {
 	return encoder.encodeIPv4Address(vb.val)
 }
 
@@ -178,14 +177,14 @@ func NewUint32Varbind(oid ObjectIdentifier) *Uint32Varbind {
 	return vb
 }
 
-func decodeVarbind(decoder *BerDecoder) (varbind Varbind, err error) {
+func decodeVarbind(decoder *berDecoder) (varbind Varbind, err error) {
 	varbindHeaderType, varbindLength, err := decoder.decodeHeader()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to decode varbind header - err: %s", err)
 	}
 	startDecoderLen := decoder.Len()
-	if varbindHeaderType != SEQUENCE {
-		return nil, fmt.Errorf("Invalid varbind header type 0x%x - not 0x%x", varbindHeaderType, SEQUENCE)
+	if varbindHeaderType != snmpBlockType_SEQUENCE {
+		return nil, fmt.Errorf("Invalid varbind header type 0x%x - not 0x%x", varbindHeaderType, snmpBlockType_SEQUENCE)
 	}
 	oid, err := decoder.decodeObjectIdentifierWithHeader()
 	if err != nil {
@@ -196,21 +195,21 @@ func decodeVarbind(decoder *BerDecoder) (varbind Varbind, err error) {
 		return nil, fmt.Errorf("Unable to decode value header - err: %s", err)
 	}
 	switch valueType {
-	case INTEGER:
+	case snmpBlockType_INTEGER:
 		varbind = NewIntegerVarbind(oid, value.(int32))
-	case BIT_STRING:
+	case snmpBlockType_BIT_STRING:
 		varbind = NewBitStringVarbind(oid, value.(*BitString))
-	case OCTET_STRING:
+	case snmpBlockType_OCTET_STRING:
 		varbind = NewOctetStringVarbind(oid, value.(OctectString))
-	case NULL:
+	case snmpBlockType_NULL:
 		varbind = NewNullVarbind(oid)
-	case OBJECT_IDENTIFIER:
+	case snmpBlockType_OBJECT_IDENTIFIER:
 		varbind = NewObjectIdentifierVarbind(oid, value.(ObjectIdentifier))
-	case IP_ADDRESS:
+	case snmpBlockType_IP_ADDRESS:
 		varbind = NewIPv4AddressVarbind(oid, value.(net.IP))
-	// case COUNTER_32:
+	// case snmpBlockType_COUNTER_32:
 	// 	varbind = NewCounter32Varbind(oid)
-	// case GAUGE_32:
+	// case snmpBlockType_GAUGE_32:
 	// 	varbind = NewGauge32Varbind(oid)
 	// case TIME_TICKS:
 	// 	varbind = NewTimeTicksVarbind(oid)

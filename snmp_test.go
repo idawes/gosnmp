@@ -27,7 +27,7 @@ func SetupLowLevelContextTest(logger seelog.LoggerInterface, testIdGenerator cha
 				time.Sleep(1 * time.Second)
 				stats, err := clientCtxt.GetStatsBin(0)
 				Ω(err).Should(BeNil())
-				Ω(stats.Stats[INBOUND_CONNECTION_CLOSE]).Should(Equal(1))
+				Ω(stats.Stats[StatType_INBOUND_CONNECTION_CLOSE]).Should(Equal(1))
 			})
 		})
 	})

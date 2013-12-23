@@ -1,19 +1,18 @@
-package asn
+package gosnmp
 
 import (
 	"bytes"
 	"container/list"
-	. "github.com/idawes/gosnmp/common"
 	"runtime"
 )
 
-type BerEncoderFactory struct {
+type berEncoderFactory struct {
 	bufPool *bufferPool
 	logger  Logger
 }
 
-func NewBerEncoderFactory(logger Logger) *BerEncoderFactory {
-	factory := new(BerEncoderFactory)
+func newberEncoderFactory(logger Logger) *berEncoderFactory {
+	factory := new(berEncoderFactory)
 	// Encoders are typically used and destroyed in short order, so we should only have a few active at any time. Each encoder may use quite a few small
 	// temporary buffers during the encoding process though. Here we're setting things up for NumCpu * 2 encoders to be able to use 200 buffers each.
 	factory.bufPool = newBufferPool(runtime.NumCPU()*2*200, 64, logger)
@@ -21,21 +20,21 @@ func NewBerEncoderFactory(logger Logger) *BerEncoderFactory {
 	return factory
 }
 
-type BerEncoder struct {
+type berEncoder struct {
 	bufChain *list.List
 	bufPool  *bufferPool
 	logger   Logger
 }
 
-func (factory *BerEncoderFactory) newBerEncoder() *BerEncoder {
-	encoder := new(BerEncoder)
+func (factory *berEncoderFactory) newberEncoder() *berEncoder {
+	encoder := new(berEncoder)
 	encoder.bufChain = list.New()
 	encoder.bufPool = factory.bufPool
 	encoder.logger = factory.logger
 	return encoder
 }
 
-func (encoder *BerEncoder) serialize() []byte {
+func (encoder *berEncoder) serialize() []byte {
 	totalLen := 0
 	for e := encoder.bufChain.Front(); e != nil; e = e.Next() {
 		buf := e.Value.(*bytes.Buffer)
@@ -49,7 +48,7 @@ func (encoder *BerEncoder) serialize() []byte {
 	return serializedMsg.Bytes()
 }
 
-func (encoder *BerEncoder) destroy() {
+func (encoder *berEncoder) destroy() {
 	for e := encoder.bufChain.Front(); e != nil; e = e.Next() {
 		buf := e.Value.(*bytes.Buffer)
 		encoder.bufPool.putBuffer(buf)
@@ -57,23 +56,23 @@ func (encoder *BerEncoder) destroy() {
 	encoder.bufChain.Init() // make sure to release references
 }
 
-func (e *BerEncoder) append() *bytes.Buffer {
+func (e *berEncoder) append() *bytes.Buffer {
 	buf := e.bufPool.getBuffer()
 	e.bufChain.PushBack(buf)
 	return buf
 }
 
-type BerHeader struct {
+type berHeader struct {
 	buf *bytes.Buffer
 }
 
-func (encoder *BerEncoder) newHeader(blockType SnmpBlockType) *BerHeader {
-	h := BerHeader{buf: encoder.append()}
+func (encoder *berEncoder) newHeader(blockType snmpBlockType) *berHeader {
+	h := berHeader{buf: encoder.append()}
 	h.buf.WriteByte(byte(blockType))
 	return &h
 }
 
-func (h *BerHeader) setContentLength(contentLength int) (headerLength int, blockLength int) {
+func (h *berHeader) setContentLength(contentLength int) (headerLength int, blockLength int) {
 	if contentLength < 127 {
 		h.buf.WriteByte(byte(contentLength))
 	} else {

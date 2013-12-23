@@ -1,4 +1,4 @@
-package common
+package gosnmp
 
 // LoggerInterface is the interface that snmp-go expects to be able to use to produce debug logging.
 // It matches exactly with the interface presented by SeeLog (github.com/cihub/seelog), but should be very simple to adapt to

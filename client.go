@@ -1,9 +1,5 @@
 package gosnmp
 
-import (
-	. "github.com/idawes/gosnmp/common"
-)
-
 type ClientContext struct {
 	snmpContext
 }

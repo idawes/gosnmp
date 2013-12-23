@@ -1,23 +1,22 @@
-package asn
+package gosnmp
 
 import (
 	"bytes"
 	"fmt"
-	. "github.com/idawes/gosnmp/common"
 )
 
-type BerDecoder struct {
+type berDecoder struct {
 	*bytes.Buffer
 	pos int
 }
 
-func newBerDecoder(msg []byte) *BerDecoder {
-	decoder := BerDecoder{bytes.NewBuffer(msg), 0}
+func newberDecoder(msg []byte) *berDecoder {
+	decoder := berDecoder{bytes.NewBuffer(msg), 0}
 	return &decoder
 }
 
 // decodeHeader pulls an ASN.1 block header from the decoder. It returns the decoded type and length of the block.
-func (decoder *BerDecoder) decodeHeader() (SnmpBlockType, int, error) {
+func (decoder *berDecoder) decodeHeader() (snmpBlockType, int, error) {
 	blockType, err := decoder.ReadByte()
 	if err != nil {
 		return 0, 0, fmt.Errorf("Couldn't read byte at pos %d, err: %s", decoder.pos, err)
@@ -30,11 +29,11 @@ func (decoder *BerDecoder) decodeHeader() (SnmpBlockType, int, error) {
 	if blockLength > decoder.Len() {
 		return 0, 0, fmt.Errorf("Length %d for block exceeds remaining message length %d", blockLength, decoder.Len())
 	}
-	return SnmpBlockType(blockType), blockLength, nil
+	return snmpBlockType(blockType), blockLength, nil
 }
 
 // Note: returned length will never be negative.
-func (decoder *BerDecoder) decodeLength() (int, error) {
+func (decoder *berDecoder) decodeLength() (int, error) {
 	var length int
 	firstByte, err := decoder.ReadByte()
 	if err != nil {
@@ -61,38 +60,38 @@ func (decoder *BerDecoder) decodeLength() (int, error) {
 }
 
 // decodeValue pulls a single basic value TLV from the decoder. It returns the value's type and the value as a generic.
-func (decoder *BerDecoder) decodeValue() (SnmpBlockType, interface{}, error) {
+func (decoder *berDecoder) decodeValue() (snmpBlockType, interface{}, error) {
 	valueType, valueLength, err := decoder.decodeHeader()
 	if err != nil {
 		return 0, nil, fmt.Errorf("Unable to decode value header at pos %d - err: %s", decoder.pos, err)
 	}
 	var value interface{}
 	switch valueType {
-	case INTEGER:
+	case snmpBlockType_INTEGER:
 		value, err = decoder.decodeInteger(valueLength)
-	case BIT_STRING:
+	case snmpBlockType_BIT_STRING:
 		value, err = decoder.decodeBitString(valueLength)
-	case OCTET_STRING:
+	case snmpBlockType_OCTET_STRING:
 		value, err = decoder.decodeOctetString(valueLength)
-	case NULL:
+	case snmpBlockType_NULL:
 		value = nil
-	case OBJECT_IDENTIFIER:
+	case snmpBlockType_OBJECT_IDENTIFIER:
 		value, err = decoder.decodeObjectIdentifier(valueLength)
-	case SEQUENCE:
-		return 0, nil, fmt.Errorf("Unexpected value type SEQUENCE 0x%x at pos %d", valueType, decoder.pos)
-	case IP_ADDRESS:
+	case snmpBlockType_SEQUENCE:
+		return 0, nil, fmt.Errorf("Unexpected value type snmpBlockType_SEQUENCE 0x%x at pos %d", valueType, decoder.pos)
+	case snmpBlockType_IP_ADDRESS:
 		value, err = decoder.decodeIPv4Address(valueLength)
-	case COUNTER_32:
+	case snmpBlockType_COUNTER_32:
 		// value, err = decoder.decodeCounter32(valueLength)
-	case GAUGE_32:
+	case snmpBlockType_GAUGE_32:
 		// value, err = decoder.decodeGauge32(valueLength)
-	case TIME_TICKS:
+	case snmpBlockType_TIME_TICKS:
 		// value, err = decoder.decodeTimeTicks(valueLength)
-	case OPAQUE:
+	case snmpBlockType_OPAQUE:
 		// value, err = decoder.decodeOpaque(valueLength)
-	case COUNTER_64:
+	case snmpBlockType_COUNTER_64:
 		// value, err = decoder.decodeCounter64(valueLength)
-	case UINT_32:
+	case snmpBlockTYpe_UINT_32:
 		// value, err = decoder.decodeUint32(valueLength)
 	default:
 		return 0, nil, fmt.Errorf("Unknown value type 0x%x", valueType)

@@ -1,8 +1,7 @@
-package asn
+package gosnmp
 
 import (
 	"bytes"
-	. "github.com/idawes/gosnmp/common"
 )
 
 type bufferPool struct {
