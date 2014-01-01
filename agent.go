@@ -17,3 +17,10 @@ func NewAgentWithPort(name string, maxTargets int, port int, logger Logger) *Age
 func (ctxt *snmpContext) processIncomingRequest(req SnmpRequest) {
 
 }
+
+type BasicOidHandler interface {
+	Get(Varbind) error
+	Set(Varbind) error
+}
+
+func (agent *Agent) register
