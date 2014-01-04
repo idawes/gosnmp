@@ -34,5 +34,8 @@ const (
 	snmpBlockType_OPAQUE                          = 0x44
 	snmpBlockType_NSAP_ADDRESS                    = 0x45
 	snmpBlockType_COUNTER_64                      = 0x46
-	snmpBlockTYpe_UINT_32                         = 0x47
+	snmpBlockType_UINT_32                         = 0x47
+	snmpBlockType_NO_SUCH_OBJECT                  = 0x80
+	snmpBlockType_NO_SUCH_INSTANCE                = 0x81
+	snmpBlockType_END_OF_MIB_VIEW                 = 0x82
 )

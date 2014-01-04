@@ -50,48 +50,48 @@ func (ctxt *ClientContext) NewV2cClientWithPort(community string, address string
 // SendRequest sends one request to the host associated with this client and waits for a response or a timeout.
 // The values currently set on this client for TimeoutSeconds and Retries will be used to control the request.
 // On return, the request will either have a response attached, or it's error field will be filled in.
-func (client *V2cClient) SendRequest(req *CommunityRequest) {
+func (client *V2cClient) SendRequest(req CommunityRequest) {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	req.address = client.Address
-	req.community = client.Community
-	req.timeoutSeconds = client.TimeoutSeconds
-	req.retriesRemaining = client.Retries
+	req.setAddress(client.Address)
+	req.setCommunity(client.Community)
+	req.setTimeoutSeconds(client.TimeoutSeconds)
+	req.setRetriesRemaining(client.Retries)
 	client.snmpContext.sendRequest(req)
 	req.wait()
 	return
 }
 
-func (ctxt *ClientContext) AllocateV2cGetRequestWithOids(oids []ObjectIdentifier) *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cGetRequestWithOids(oids []ObjectIdentifier) V2cGetRequest {
 	req := ctxt.AllocateV2cGetRequest()
 	req.AddOids(oids)
 	return req
 }
 
-func (ctxt *ClientContext) AllocateV2cGetRequest() *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cGetRequest() V2cGetRequest {
 	req := ctxt.allocateV2cRequest()
 	req.pduType = pduType_GET_REQUEST
 	return req
 }
 
-func (ctxt *ClientContext) AllocateV2cGetNextRequest() *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cGetNextRequest() V2cGetRequest {
 	req := ctxt.allocateV2cRequest()
 	req.pduType = pduType_GET_NEXT_REQUEST
 	return req
 }
 
-func (ctxt *ClientContext) AllocateV2cSetRequest() *CommunityRequest {
+func (ctxt *ClientContext) AllocateV2cSetRequest() V2cSetRequest {
 	req := ctxt.allocateV2cRequest()
 	req.pduType = pduType_SET_REQUEST
 	return req
 }
 
-func (ctxt *ClientContext) allocateV2cRequest() *CommunityRequest {
+func (ctxt *ClientContext) allocateV2cRequest() *communityRequest {
 	req := ctxt.allocateCommunityRequest()
 	req.version = Version2c
 	return req
 }
 
-func (ctxt *ClientContext) FreeV2cRequest(req *CommunityRequest) {
+func (ctxt *ClientContext) FreeV2cRequest(req CommunityRequest) {
 	ctxt.freeCommunityRequest(req)
 }

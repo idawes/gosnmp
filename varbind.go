@@ -43,6 +43,13 @@ type OctetStringVarbind struct { // type 0x04
 	val []byte
 }
 
+func NewStringVarbind(oid ObjectIdentifier, val string) *OctetStringVarbind {
+	vb := new(OctetStringVarbind)
+	vb.oid = oid
+	vb.val = []byte(val)
+	return vb
+}
+
 func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind {
 	vb := new(OctetStringVarbind)
 	vb.oid = oid
@@ -65,7 +72,7 @@ func NewNullVarbind(oid ObjectIdentifier) *NullVarbind {
 }
 
 func (vb *NullVarbind) encodeValue(encoder *berEncoder) (int, error) {
-	return encoder.encodeNull(), nil
+	return encoder.encodeNull(snmpBlockType_NULL), nil
 }
 
 type ObjectIdentifierVarbind struct { // type 0x06
@@ -177,6 +184,48 @@ func NewUint32Varbind(oid ObjectIdentifier) *Uint32Varbind {
 	return vb
 }
 
+type NoSuchObjectVarbind struct { // type 0x80
+	baseVarbind
+}
+
+func NewNoSuchObjectVarbind(oid ObjectIdentifier) *NoSuchObjectVarbind {
+	vb := new(NoSuchObjectVarbind)
+	vb.oid = oid
+	return vb
+}
+
+func (vb *NoSuchObjectVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeNull(snmpBlockType_NO_SUCH_OBJECT), nil
+}
+
+type NoSuchInstanceVarbind struct { // type 0x81
+	baseVarbind
+}
+
+func NewNoSuchInstanceVarbindVarbind(oid ObjectIdentifier) *NoSuchInstanceVarbind {
+	vb := new(NoSuchInstanceVarbind)
+	vb.oid = oid
+	return vb
+}
+
+func (vb *NoSuchInstanceVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeNull(snmpBlockType_NO_SUCH_INSTANCE), nil
+}
+
+type EndOfMibViewVarbind struct { // type 0x82
+	baseVarbind
+}
+
+func NewEndOfMibViewVarbind(oid ObjectIdentifier) *EndOfMibViewVarbind {
+	vb := new(EndOfMibViewVarbind)
+	vb.oid = oid
+	return vb
+}
+
+func (vb *EndOfMibViewVarbind) encodeValue(encoder *berEncoder) (int, error) {
+	return encoder.encodeNull(snmpBlockType_END_OF_MIB_VIEW), nil
+}
+
 func decodeVarbind(decoder *berDecoder) (varbind Varbind, err error) {
 	varbindHeaderType, varbindLength, err := decoder.decodeHeader()
 	if err != nil {
@@ -219,6 +268,12 @@ func decodeVarbind(decoder *berDecoder) (varbind Varbind, err error) {
 	// 	varbind = NewCounter64Varbind(oid)
 	// case UINT_32:
 	// 	varbind = NewUint32Varbind(oid)
+	case snmpBlockType_NO_SUCH_OBJECT:
+		varbind = NewNoSuchObjectVarbind(oid)
+	case snmpBlockType_NO_SUCH_INSTANCE:
+		varbind = NewNoSuchInstanceVarbindVarbind(oid)
+	case snmpBlockType_END_OF_MIB_VIEW:
+		varbind = NewEndOfMibViewVarbind(oid)
 	default:
 		return nil, fmt.Errorf("Unknown value type 0x%x", valueType)
 	}

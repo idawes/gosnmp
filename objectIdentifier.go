@@ -8,17 +8,52 @@ import (
 // An ObjectIdentifier represents an ASN.1 OBJECT IDENTIFIER.
 type ObjectIdentifier []uint32
 
-// Equal returns true iff oi and other represent the same identifier.
-func (oid ObjectIdentifier) Equal(other ObjectIdentifier) bool {
-	if len(oid) != len(other) {
+// Equal returns true iff a and b represent the same identifier.
+func (a ObjectIdentifier) Equal(b ObjectIdentifier) bool {
+	if len(a) != len(b) {
 		return false
 	}
-	for i := 0; i < len(oid); i++ {
-		if oid[i] != other[i] {
+	for i, a_i := range a {
+		if a_i != b[i] {
 			return false
 		}
 	}
 	return true
+}
+
+// Compare returns -1 if a comes before b in the oid tree, 0 if a and b represent exactly the same node in the oid tree and 1 if a comes after b in the oid tree.
+func (a ObjectIdentifier) Compare(b ObjectIdentifier) int {
+	bLen := len(b)
+	for i, a_i := range a {
+		if i == bLen {
+			// we ran out of elements in oid b first, and all elements to this point were equal. Therefore oid b is less specific than a, and comes first in the tree
+			return 1
+		}
+		diff := int64(a_i) - int64(b[i])
+		if diff != 0 {
+			return int(diff)
+		}
+	}
+	if len(a) == bLen {
+		// all elements were equal
+		return 0
+	}
+	// we ran out of elements in oid a first, and all elements to this point were equal, Therefore oid a is less specific than b, and comes first in the tree.
+	return -1
+}
+
+func (a ObjectIdentifier) findMatchLength(b ObjectIdentifier) int {
+	bLen := len(b)
+	for i, a_i := range a {
+		if i == bLen {
+			// we ran out of elements in oid b first, and all elements to this point were equal.
+			return bLen
+		}
+		if a_i != b[i] {
+			return i
+		}
+	}
+	return len(a)
 }
 
 // encodeObjectIdentifier writes an object identifier to the encoder. It returns the number of bytes written to the encoder

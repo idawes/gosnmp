@@ -39,7 +39,11 @@ func (e InvalidStateError) Error() string {
 //
 //
 // ******************************************************************
-// --------------------------- Context Life Cycle -------------------
+// --------------------------- SNMP Context -------------------------
+
+type RequestProcessor interface {
+	processcommunityRequest(*communityRequest)
+}
 
 type snmpContext struct {
 	Logger
@@ -72,6 +76,8 @@ type snmpContext struct {
 	statRequests               chan snmpContextStatRequest
 
 	communityRequestPool *requestPool
+
+	incomingRequestProcessor RequestProcessor
 }
 
 func (ctxt *snmpContext) Shutdown() {
@@ -81,7 +87,7 @@ func (ctxt *snmpContext) Shutdown() {
 	})
 }
 
-func (ctxt *snmpContext) setDecodeErrorLogging(enabled bool) {
+func (ctxt *snmpContext) SetDecodeErrorLogging(enabled bool) {
 	ctxt.logDecodeErrors = enabled
 }
 
@@ -90,6 +96,11 @@ func newContext(name string, maxTargets int, startRequestTracker bool, port int,
 		panic("logger must not be nil")
 	}
 	ctxt := new(snmpContext)
+	ctxt.initContext(name, maxTargets, startRequestTracker, port, logger)
+	return ctxt
+}
+
+func (ctxt *snmpContext) initContext(name string, maxTargets int, startRequestTracker bool, port int, logger Logger) {
 	ctxt.name = name
 	ctxt.Logger = logger
 	ctxt.maxTargets = maxTargets
@@ -109,7 +120,6 @@ func newContext(name string, maxTargets int, startRequestTracker bool, port int,
 		ctxt.startRequestTracker(maxTargets)
 	}
 	go ctxt.monitor()
-	return ctxt
 }
 
 func (ctxt *snmpContext) monitor() {
@@ -167,18 +177,22 @@ const (
 	StatType_INBOUND_MESSAGES_RECEIVED
 	StatType_INBOUND_MESSAGES_UNDECODABLE
 	StatType_OUTBOUND_MESSAGES_SENT
-	StatType_RESPONSES_RECEIVED
-	StatType_RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT
+	StatType_RESPONSES_RELEASED_TO_CLIENT
+	StatType_RESPONSES_DROPPED_BY_REQUEST_TRACKER
 	StatType_REQUESTS_SENT
 	StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL
-	StatType_REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED
+	StatType_UNKNOWN_REQUESTS_TIMED_OUT
 	StatType_REQUESTS_TIMED_OUT
-	StatType_REQUESTS_RETRIES_EXHAUSTED
+	StatType_REQUEST_RETRIES_EXHAUSTED
 	StatType_UNDECODABLE_MESSAGES_RECEIVED
 	StatType_GET_REQUESTS_RECEIVED
+	StatType_GET_NEXT_REQUESTS_RECEIVED
 	StatType_GET_BULK_REQUESTS_RECEIVED
 	StatType_SET_REQUESTS_RECEIVED
-	StatType_GET_RESPONSES_RECEIVED
+	StatType_RESPONSES_RECEIVED
+	StatType_V1_TRAPS_RECEIVED
+	StatType_V2_TRAPS_RECEIVED
+	StatType_COMMUNITY_REQUEST_RECEIVED_WITH_NO_REQUEST_PROCESSOR
 )
 
 type snmpContextStatRequest struct {
@@ -332,19 +346,20 @@ func (ctxt *snmpContext) trackRequests() {
 		case resp = <-ctxt.responsesFromAgents:
 			req = ctxt.outstandingRequests[resp.getRequestId()]
 			if req == nil {
-				ctxt.incrementStat(StatType_RESPONSES_RECEIVED_AFTER_REQUEST_TIMED_OUT)
+				ctxt.incrementStat(StatType_RESPONSES_DROPPED_BY_REQUEST_TRACKER)
 				continue // most likely we've already timed out the request.
 			}
 			delete(ctxt.outstandingRequests, req.getRequestId())
 			req.stopTimer()
 			req.setResponse(resp)
-			ctxt.incrementStat(StatType_RESPONSES_RECEIVED)
+			ctxt.incrementStat(StatType_RESPONSES_RELEASED_TO_CLIENT)
 			req.notify()
 
 		case requestId := <-ctxt.requestTimeouts:
 			req = ctxt.outstandingRequests[requestId]
 			if req == nil {
-				ctxt.incrementStat(StatType_REQUESTS_TIMED_OUT_AFTER_RESPONSE_PROCESSED)
+				ctxt.Errorf("Context %s: Got request timeout for unknown requestid: %d", ctxt.name, requestId)
+				ctxt.incrementStat(StatType_UNKNOWN_REQUESTS_TIMED_OUT)
 				continue
 			}
 			if req.isRetryRequired() {
@@ -355,7 +370,7 @@ func (ctxt *snmpContext) trackRequests() {
 			} else {
 				delete(ctxt.outstandingRequests, req.getRequestId())
 				req.setError(TimeoutError{})
-				ctxt.incrementStat(StatType_REQUESTS_RETRIES_EXHAUSTED)
+				ctxt.incrementStat(StatType_REQUEST_RETRIES_EXHAUSTED)
 				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, req.GetLoggingId())
 				req.notify()
 			}
@@ -371,9 +386,9 @@ func (ctxt *snmpContext) handleRequestTimeout(req SnmpRequest) {
 	ctxt.requestTimeouts <- req.getRequestId()
 }
 
-// func (ctxt *snmpContext) sendResponse(resp SnmpResponse) {
-// 	ctxt.outboundFlowControlQueue <- resp
-// }
+func (ctxt *snmpContext) sendResponse(resp SnmpResponse) {
+	ctxt.outboundFlowControlQueue <- resp
+}
 
 func (ctxt *snmpContext) processOutboundQueue() {
 	defer func() {
@@ -389,12 +404,13 @@ func (ctxt *snmpContext) processOutboundQueue() {
 				ctxt.Debugf("Couldn't encode message: err: %s. Message:\n%s", err, spew.Sdump(msg))
 				continue
 			}
+			ctxt.Debugf("Ctxt %s: Sending message:\n%s", ctxt.name, spew.Sdump(msg))
 			if n, err := ctxt.conn.WriteToUDP(encodedMsg, msg.getAddress()); err != nil || n != len(encodedMsg) {
 				if strings.HasSuffix(err.Error(), "closed network connection") {
 					ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to closed connection", ctxt.name)
 					ctxt.incrementStat(StatType_OUTBOUND_CONNECTION_CLOSE)
 				} else {
-					ctxt.Errorf("Ctxt %s: UDP write failed, err: %s, numWritten: %d, expected: %d", err, n, len(encodedMsg))
+					ctxt.Errorf("Ctxt %s: UDP write failed, err: %s, numWritten: %d, expected: %d", ctxt.name, err, n, len(encodedMsg))
 					ctxt.incrementStat(StatType_OUTBOUND_CONNECTION_DEATH)
 				}
 				return
@@ -433,7 +449,7 @@ func (ctxt *snmpContext) listen() {
 		ctxt.inboundDied <- true
 		ctxt.outboundFlowControlShutdown <- true // make sure that transmit side shuts down too.
 	}()
-	ctxt.Debugf("Ctxt %s: incoming message listener initializing", ctxt.name)
+	ctxt.Debugf("Ctxt %s: incoming message listener initializing for: %s", ctxt.name, ctxt.conn.LocalAddr())
 	msg := make([]byte, 0, 2000) // UDP... 2000 bytes should be more than enough to hold the largest possible message.
 	for {
 		msg = msg[0:cap(msg)]
@@ -464,21 +480,39 @@ func (ctxt *snmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 		return
 	}
 	decodedMsg.setAddress(addr)
-	switch decodedMsg.getpduType() {
+	ctxt.recordIncomingMessage(decodedMsg)
+	ctxt.routeIncomingMessage(decodedMsg)
+}
+
+func (ctxt *snmpContext) recordIncomingMessage(msg SnmpMessage) {
+	switch msg.getpduType() {
 	case pduType_GET_REQUEST:
 		ctxt.incrementStat(StatType_GET_REQUESTS_RECEIVED)
-		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
+	case pduType_GET_NEXT_REQUEST:
+		ctxt.incrementStat(StatType_GET_NEXT_REQUESTS_RECEIVED)
 	case pduType_GET_BULK_REQUEST:
 		ctxt.incrementStat(StatType_GET_BULK_REQUESTS_RECEIVED)
-		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
 	case pduType_SET_REQUEST:
 		ctxt.incrementStat(StatType_SET_REQUESTS_RECEIVED)
-		ctxt.processIncomingRequest(decodedMsg.(SnmpRequest))
-	case pduType_GET_RESPONSE:
-		ctxt.incrementStat(StatType_GET_RESPONSES_RECEIVED)
-		ctxt.responsesFromAgents <- decodedMsg.(SnmpResponse)
+	case pduType_RESPONSE:
+		ctxt.incrementStat(StatType_RESPONSES_RECEIVED)
 	case pduType_V1_TRAP:
+		ctxt.incrementStat(StatType_V1_TRAPS_RECEIVED)
 	case pduType_V2_TRAP:
+		ctxt.incrementStat(StatType_V2_TRAPS_RECEIVED)
+	}
+}
+
+func (ctxt *snmpContext) routeIncomingMessage(msg SnmpMessage) {
+	switch msg.(type) {
+	case *communityRequest:
+		if ctxt.incomingRequestProcessor == nil {
+			ctxt.incrementStat(StatType_COMMUNITY_REQUEST_RECEIVED_WITH_NO_REQUEST_PROCESSOR)
+			return
+		}
+		ctxt.incomingRequestProcessor.processcommunityRequest(msg.(*communityRequest))
+	case SnmpResponse:
+		ctxt.responsesFromAgents <- msg.(SnmpResponse)
 	}
 }
 
@@ -491,14 +525,14 @@ func (ctxt *snmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 
 func (ctxt *snmpContext) startRequestPools() {
 	ctxt.communityRequestPool = newRequestPool(ctxt.maxTargets, func() SnmpRequest {
-		return newCommunityRequest()
+		return newcommunityRequest()
 	}, ctxt)
 }
 
-func (ctxt *snmpContext) allocateCommunityRequest() *CommunityRequest {
-	return ctxt.communityRequestPool.getRequest().(*CommunityRequest)
+func (ctxt *snmpContext) allocateCommunityRequest() *communityRequest {
+	return ctxt.communityRequestPool.getRequest().(*communityRequest)
 }
 
-func (ctxt *snmpContext) freeCommunityRequest(req *CommunityRequest) {
+func (ctxt *snmpContext) freeCommunityRequest(req CommunityRequest) {
 	ctxt.communityRequestPool.putRequest(req)
 }

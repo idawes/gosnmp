@@ -9,12 +9,12 @@ import (
 
 // A bunch of commonly used MIB-2 oids.
 var (
-	SYS_DESCR_OID     = []uint32{1, 3, 5, 1, 2, 1, 1, 1}
-	SYS_OBJECT_ID_OID = []uint32{1, 3, 5, 1, 2, 1, 1, 2}
-	SYS_UPTIME_OID    = []uint32{1, 3, 5, 1, 2, 1, 1, 3}
-	SYS_CONTACT_OID   = []uint32{1, 3, 5, 1, 2, 1, 1, 4}
-	SYS_NAME_OID      = []uint32{1, 3, 5, 1, 2, 1, 1, 5}
-	SYS_LOCATION_OID  = []uint32{1, 3, 5, 1, 2, 1, 1, 6}
+	SYS_DESCR_OID     = ObjectIdentifier{1, 3, 6, 1, 2, 1, 1, 1, 0}
+	SYS_OBJECT_ID_OID = ObjectIdentifier{1, 3, 6, 1, 2, 1, 1, 2, 0}
+	SYS_UPTIME_OID    = ObjectIdentifier{1, 3, 6, 1, 2, 1, 1, 3, 0}
+	SYS_CONTACT_OID   = ObjectIdentifier{1, 3, 6, 1, 2, 1, 1, 4, 0}
+	SYS_NAME_OID      = ObjectIdentifier{1, 3, 6, 1, 2, 1, 1, 5, 0}
+	SYS_LOCATION_OID  = ObjectIdentifier{1, 3, 6, 1, 2, 1, 1, 6, 0}
 )
 
 func parseOid(oidString string) (oid []int, err error) {

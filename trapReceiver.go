@@ -6,6 +6,6 @@ type TrapReceiver struct {
 
 func NewTrapReceiver(name string, queueDepth int, port int, logger Logger) *TrapReceiver {
 	trapReceiver := new(TrapReceiver)
-	trapReceiver.snmpContext = *newContext(name, 0, true, 0, logger)
+	trapReceiver.snmpContext.initContext(name, 0, true, 0, logger)
 	return trapReceiver
 }

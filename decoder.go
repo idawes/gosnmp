@@ -73,7 +73,7 @@ func (decoder *berDecoder) decodeValue() (snmpBlockType, interface{}, error) {
 		value, err = decoder.decodeBitString(valueLength)
 	case snmpBlockType_OCTET_STRING:
 		value, err = decoder.decodeOctetString(valueLength)
-	case snmpBlockType_NULL:
+	case snmpBlockType_NULL, snmpBlockType_NO_SUCH_OBJECT, snmpBlockType_NO_SUCH_INSTANCE, snmpBlockType_END_OF_MIB_VIEW:
 		value = nil
 	case snmpBlockType_OBJECT_IDENTIFIER:
 		value, err = decoder.decodeObjectIdentifier(valueLength)
@@ -91,7 +91,7 @@ func (decoder *berDecoder) decodeValue() (snmpBlockType, interface{}, error) {
 		// value, err = decoder.decodeOpaque(valueLength)
 	case snmpBlockType_COUNTER_64:
 		// value, err = decoder.decodeCounter64(valueLength)
-	case snmpBlockTYpe_UINT_32:
+	case snmpBlockType_UINT_32:
 		// value, err = decoder.decodeUint32(valueLength)
 	default:
 		return 0, nil, fmt.Errorf("Unknown value type 0x%x", valueType)

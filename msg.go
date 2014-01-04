@@ -11,7 +11,7 @@ type pduType snmpBlockType
 const (
 	pduType_GET_REQUEST      pduType = 0xa0
 	pduType_GET_NEXT_REQUEST         = 0xa1
-	pduType_GET_RESPONSE             = 0xa2
+	pduType_RESPONSE                 = 0xa2
 	pduType_SET_REQUEST              = 0xa3
 	pduType_V1_TRAP                  = 0xa4
 	pduType_GET_BULK_REQUEST         = 0xa5
@@ -26,8 +26,8 @@ func (pduType *pduType) String() string {
 		return "GET REQUEST"
 	case pduType_GET_NEXT_REQUEST:
 		return "GET NEXT REQUEST"
-	case pduType_GET_RESPONSE:
-		return "GET RESPONSE"
+	case pduType_RESPONSE:
+		return "RESPONSE"
 	case pduType_SET_REQUEST:
 		return "SET REQUEST"
 	default:
@@ -49,8 +49,6 @@ type SnmpMessage interface {
 
 type SnmpRequest interface {
 	SnmpMessage
-	AddOid(oid ObjectIdentifier)
-	AddOids(oids []ObjectIdentifier)
 	GetFlightTime() time.Duration
 	wait()
 	notify()
@@ -59,11 +57,33 @@ type SnmpRequest interface {
 	isRetryRequired() bool
 	startTimer(func(SnmpRequest))
 	stopTimer()
-	setResponse(resp SnmpResponse)
 	setError(err error)
+	GetError() error
+	setResponse(resp SnmpResponse)
+	GetResponse() SnmpResponse
+}
+
+type CommunityRequest interface {
+	SnmpRequest
+	getCommunity() string
+	setCommunity(string)
+	setTimeoutSeconds(int)
+	setRetriesRemaining(int)
+}
+
+type V2cGetRequest interface {
+	CommunityRequest
+	AddOid(ObjectIdentifier)
+	AddOids([]ObjectIdentifier)
+}
+
+type V2cSetRequest interface {
+	CommunityRequest
+	AddVarbind(Varbind)
 }
 
 type SnmpResponse interface {
+	SnmpMessage
 	getRequestId() uint32
 }
 
@@ -102,6 +122,10 @@ func (msg *baseMsg) setAddress(addr *net.UDPAddr) {
 	msg.address = addr
 }
 
+func (req *baseMsg) AddVarbind(vb Varbind) {
+	req.varbinds = append(req.varbinds, vb)
+}
+
 func (msg *baseMsg) decodeVarbinds(decoder *berDecoder) (err error) {
 	varbindsListType, varbindsListLength, err := decoder.decodeHeader()
 	if err != nil {
@@ -120,6 +144,9 @@ func (msg *baseMsg) decodeVarbinds(decoder *berDecoder) (err error) {
 			return fmt.Errorf("Decoding of varbind %d failed - err: %s", varbindCount, err)
 		}
 		msg.varbinds = append(msg.varbinds, varbind)
+		if decoder.Len() == 0 {
+			return nil
+		}
 	}
 }
 
@@ -160,16 +187,16 @@ func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (snmpCommu
 	var msg snmpCommunityMessage
 	switch pduType {
 	case pduType_GET_REQUEST, pduType_GET_NEXT_REQUEST, pduType_SET_REQUEST:
-		msg = new(CommunityRequest)
-	case pduType_GET_RESPONSE:
-		msg = new(CommunityResponse)
+		msg = new(communityRequest)
+	case pduType_RESPONSE:
+		msg = new(communityResponse)
 	case pduType_GET_BULK_REQUEST, pduType_INFORM_REQUEST, pduType_V2_TRAP, pduType_REPORT:
 		if version == Version1 {
 			return nil, fmt.Errorf("Invalid PDU type for SNMP version 1 message: %s", pduType)
 		}
 		switch pduType {
 		case pduType_GET_BULK_REQUEST:
-			msg = new(CommunityRequest)
+			msg = new(communityRequest)
 		case pduType_INFORM_REQUEST, pduType_V2_TRAP, pduType_REPORT:
 			return nil, fmt.Errorf("PDU type %d not supported yet", pduType)
 		}
@@ -184,7 +211,9 @@ func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (snmpCommu
 	msg.setVersion(version)
 	msg.setCommunity(community)
 	msg.setpduType(pduType)
-	msg.decode(decoder)
+	if err := msg.decode(decoder); err != nil {
+		return nil, err
+	}
 	return msg, nil
 }
 
@@ -247,7 +276,7 @@ func (msg *communityRequestResponse) decode(decoder *berDecoder) error {
 	return msg.decodeVarbinds(decoder)
 }
 
-type CommunityRequest struct {
+type communityRequest struct {
 	communityRequestResponse
 	response         SnmpResponse
 	timeoutSeconds   int
@@ -260,33 +289,37 @@ type CommunityRequest struct {
 	err              error
 }
 
-func newCommunityRequest() *CommunityRequest {
-	req := new(CommunityRequest)
+func newcommunityRequest() *communityRequest {
+	req := new(communityRequest)
 	req.requestDoneChan = make(chan bool)
 	return req
 }
 
-func (req *CommunityRequest) GetFlightTime() time.Duration {
-	return req.flightTime
+func (req *communityRequest) setTimeoutSeconds(timeoutSeconds int) {
+	req.timeoutSeconds = timeoutSeconds
 }
 
-func (req *CommunityRequest) startTimer(timeoutFunc func(SnmpRequest)) {
+func (req *communityRequest) setRetriesRemaining(retriesRemaining int) {
+	req.retriesRemaining = retriesRemaining
+}
+
+func (req *communityRequest) startTimer(timeoutFunc func(SnmpRequest)) {
 	req.timeoutFunc = timeoutFunc
 	req.flightStartTime = time.Now()
 	req.timer = time.AfterFunc(time.Duration(req.timeoutSeconds)*time.Second, req.handleTimeout)
 }
 
-func (req *CommunityRequest) stopTimer() {
+func (req *communityRequest) stopTimer() {
 	req.timer.Stop()
 	req.flightTime = time.Since(req.flightStartTime)
 }
 
-func (req *CommunityRequest) handleTimeout() {
+func (req *communityRequest) handleTimeout() {
 	req.flightTime = time.Since(req.flightStartTime)
 	req.timeoutFunc(req)
 }
 
-func (req *CommunityRequest) isRetryRequired() bool {
+func (req *communityRequest) isRetryRequired() bool {
 	if req.retriesRemaining > 0 {
 		req.retriesRemaining--
 		return true
@@ -294,47 +327,58 @@ func (req *CommunityRequest) isRetryRequired() bool {
 	return false
 }
 
-func (req *CommunityRequest) AddOid(oid ObjectIdentifier) {
-	req.varbinds = append(req.varbinds, NewNullVarbind(oid))
-}
-
-func (req *CommunityRequest) AddOids(oids []ObjectIdentifier) {
-	temp := make([]Varbind, len(oids))
-	for i, oid := range oids {
-		temp[i] = NewNullVarbind(oid)
-	}
-	req.varbinds = append(req.varbinds, temp...)
-}
-
-func (req *CommunityRequest) wait() {
+func (req *communityRequest) wait() {
 	<-req.requestDoneChan
 }
 
-func (req *CommunityRequest) notify() {
+func (req *communityRequest) notify() {
 	req.requestDoneChan <- true
 }
 
-func (req *CommunityRequest) setResponse(resp SnmpResponse) {
-	req.response = resp
+func (req *communityRequest) GetFlightTime() time.Duration {
+	return req.flightTime
 }
 
-func (req *CommunityRequest) setError(err error) {
+func (req *communityRequest) setError(err error) {
 	req.err = err
 }
 
-func (req *CommunityRequest) GetResponse() (resp SnmpResponse) {
-	return req.response
-}
-
-func (req *CommunityRequest) GetError() (err error) {
+func (req *communityRequest) GetError() (err error) {
 	return req.err
 }
 
-func (req *CommunityRequest) GetRequestType() (requestType pduType) {
+func (req *communityRequest) setResponse(resp SnmpResponse) {
+	req.response = resp
+}
+
+func (req *communityRequest) GetResponse() (resp SnmpResponse) {
+	return req.response
+}
+
+func (req *communityRequest) GetRequestType() (requestType pduType) {
 	return req.pduType
 }
 
-type CommunityResponse struct {
+func (req *communityRequest) AddOid(oid ObjectIdentifier) {
+	req.varbinds = append(req.varbinds, NewNullVarbind(oid))
+}
+
+func (req *communityRequest) AddOids(oids []ObjectIdentifier) {
+	for _, oid := range oids {
+		req.varbinds = append(req.varbinds, NewNullVarbind(oid))
+	}
+}
+
+func (req *communityRequest) createResponse() *communityResponse {
+	resp := new(communityResponse)
+	resp.pduType = pduType_RESPONSE
+	resp.version = req.version
+	resp.address = req.address
+	resp.requestId = req.requestId
+	return resp
+}
+
+type communityResponse struct {
 	communityRequestResponse
 }
 

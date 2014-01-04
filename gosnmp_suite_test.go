@@ -28,6 +28,7 @@ func TestGosnmp(t *testing.T) {
 	if err != nil {
 		Fail(fmt.Sprintf("Couldn't initialize logger: %s", err))
 	}
+	defer logger.Flush()
 	testIdGenerator := make(chan string)
 	go func() {
 		for i := 0; ; i++ {
@@ -37,5 +38,4 @@ func TestGosnmp(t *testing.T) {
 	setupV2cClientTest(logger, testIdGenerator)
 	SetupLowLevelContextTest(logger, testIdGenerator)
 	RunSpecs(t, "gosnmp Suite")
-	logger.Close()
 }
