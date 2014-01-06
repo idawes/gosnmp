@@ -38,6 +38,11 @@ func (agent *Agent) processcommunityRequest(req *communityRequest) {
 			resp.AddVarbind(responseVb)
 
 		case pduType_SET_REQUEST:
+			err := node.handler.Set(requestVb)
+			if err != nil {
+				continue
+			}
+			resp.AddVarbind(requestVb)
 
 		}
 	}
@@ -45,16 +50,14 @@ func (agent *Agent) processcommunityRequest(req *communityRequest) {
 }
 
 func (agent *Agent) lookupHandler(oid ObjectIdentifier) *oidTreeNode {
-	var node *oidTreeNode
-	matchLength := 0
-	agent.oidTree.Do(func(n llrb.Comparable) (done bool) {
-		testNode := n.(*oidTreeNode)
-		if testMatchLength := testNode.oid.findMatchLength(oid); testMatchLength > matchLength {
-			matchLength = testMatchLength
-			node = testNode
-		}
-		return
-	})
+	tnode := agent.oidTree.Ceil(oidTreeLookup(oid))
+	if tnode == nil {
+		return nil
+	}
+	node := tnode.(*oidTreeNode)
+	if node.oid.MatchLength(oid) != len(node.oid) {
+		return nil
+	}
 	return node
 }
 

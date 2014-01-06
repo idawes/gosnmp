@@ -42,7 +42,7 @@ func (a ObjectIdentifier) Compare(b ObjectIdentifier) int {
 	return -1
 }
 
-func (a ObjectIdentifier) findMatchLength(b ObjectIdentifier) int {
+func (a ObjectIdentifier) MatchLength(b ObjectIdentifier) int {
 	bLen := len(b)
 	for i, a_i := range a {
 		if i == bLen {
