@@ -13,6 +13,21 @@ import (
 	"time"
 )
 
+type fakeTransactionProvider struct {
+}
+
+func (provider *fakeTransactionProvider) StartTxn() interface{} {
+	return 0
+}
+
+func (provider *fakeTransactionProvider) CommitTxn(interface{}) bool {
+	return true
+}
+
+func (provider *fakeTransactionProvider) AbortTxn(interface{}) {
+	return
+}
+
 func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan string) {
 	Describe("V2cClient", func() {
 		var (
@@ -245,11 +260,10 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 				agent *snmp.Agent
 			)
 			BeforeEach(func() {
-				agent = snmp.NewAgentWithPort("testAgent", 10, 2000, logger)
+				agent = snmp.NewAgentWithPort("testAgent", 10, 2000, logger, new(fakeTransactionProvider))
 				agent.RegisterSingleVarOidHandler(snmp.SYS_OBJECT_ID_OID, snmp.NewObjectIdentifierOidHandler(snmp.ObjectIdentifier{1, 3, 6, 1, 4, 1, 424242, 1, 1}, false))
 				agent.RegisterSingleVarOidHandler(snmp.SYS_DESCR_OID, snmp.NewStringOidHandler("Test System Description", false))
 				agent.SetDecodeErrorLogging(true)
-				time.Sleep(1 * time.Second)
 			})
 			AfterEach(func() {
 				agent.Shutdown()
@@ -275,7 +289,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						}(clients[i])
 					}
 					waitGroup.Wait()
-					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1))+0.2))
+					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(0.2)))
 					statsBin, err := clientCtxt.GetStatsBin(0)
 					Ω(err).Should(BeNil())
 					Ω(statsBin.Stats[snmp.StatType_RESPONSES_RECEIVED]).Should(Equal(1))
@@ -287,7 +301,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					Ω(statsBin.Stats[snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL]).Should(Equal(numClients))
 					Ω(statsBin.Stats[snmp.StatType_OUTBOUND_MESSAGES_SENT]).Should(Equal(numClients))
 					close(done)
-				}, float64(timeoutSeconds*(retries+1))+2)
+				}, 2)
 			}
 			Context("from a single client", func() {
 				Context("using 0 retries and a timeout of 1 second", func() {

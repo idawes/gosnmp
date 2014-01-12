@@ -21,13 +21,30 @@ func (e incorrectVarbindTypeError) Error() string {
 	return fmt.Sprintf("Incorrect varbind type for: %v, got: %T, expecting: %d", e.vb.getOid(), e.vb, e.expected)
 }
 
-type IntOidHandler struct {
-	val      int32
+type basicOidHandler struct {
 	writable bool
 }
 
+func (handler *basicOidHandler) SetWritable(writable bool) {
+	handler.writable = writable
+}
+
+func (handler *basicOidHandler) Writable() bool {
+	return handler.writable
+}
+
+// IntOidHandler implements a very simple handler serving up a single int32 variable, and allowing non-transaction based
+// updates of that value
+type IntOidHandler struct {
+	basicOidHandler
+	val int32
+}
+
 func NewIntOidHandler(val int32, writable bool) *IntOidHandler {
-	return &IntOidHandler{val, writable}
+	handler := new(IntOidHandler)
+	handler.val = val
+	handler.writable = writable
+	return handler
 }
 
 func (handler *IntOidHandler) Get(oid ObjectIdentifier) (Varbind, error) {
@@ -40,62 +57,84 @@ func (handler *IntOidHandler) Set(vb_base Varbind) error {
 	}
 	vb, ok := vb_base.(*IntegerVarbind)
 	if !ok {
-		return incorrectVarbindTypeError{vb_base, &IntegerVarbind{}}
+		return incorrectVarbindTypeError{vb_base, new(IntegerVarbind)}
 	}
 	handler.val = vb.val
 	return nil
 }
 
+// OctetStringOidHandler implements a very simple handler serving up a single []byte variable, and allowing non-
+// transaction based updates of that value. This is also the correct simple handler for a string value
 type OctetStringOidHandler struct {
-	val      []byte
-	writable bool
+	basicOidHandler
+	val []byte
 }
 
 func NewStringOidHandler(val string, writable bool) *OctetStringOidHandler {
-	return &OctetStringOidHandler{[]byte(val), writable}
+	return NewOctetStringOidHandler([]byte(val), writable)
 }
 
 func NewOctetStringOidHandler(val []byte, writable bool) *OctetStringOidHandler {
-	return &OctetStringOidHandler{val, writable}
+	if val == nil {
+		panic("value must be specified")
+	}
+	handler := new(OctetStringOidHandler)
+	handler.val = val
+	handler.writable = writable
+	return handler
 }
 
-func (handler *OctetStringOidHandler) Get(oid ObjectIdentifier) (Varbind, error) {
+func (handler *OctetStringOidHandler) Get(oid ObjectIdentifier, txn interface{}) (Varbind, error) {
 	return NewOctetStringVarbind(oid, handler.val), nil
 }
 
-func (handler *OctetStringOidHandler) Set(vb_base Varbind) error {
+func (handler *OctetStringOidHandler) Set(vb_base Varbind, txn interface{}) (Varbind, error) {
 	if !handler.writable {
-		return objectNotWriteableError{}
+		return nil, objectNotWriteableError{}
 	}
 	vb, ok := vb_base.(*OctetStringVarbind)
 	if !ok {
-		return incorrectVarbindTypeError{vb_base, &OctetStringVarbind{}}
+		return nil, incorrectVarbindTypeError{vb_base, new(OctetStringVarbind)}
+	}
+	if vb.val == nil {
+		panic(fmt.Sprintf("value must be specified: OID: %v", vb.oid))
 	}
 	handler.val = vb.val
-	return nil
+	return vb, nil
 }
 
+// ObjectIdentifierOidHandler implements a very simple handler serving up a single ObjectIdentifer variable, and allowing non-
+// transaction based updates of that value.
 type ObjectIdentifierOidHandler struct {
-	val      ObjectIdentifier
-	writable bool
+	basicOidHandler
+	val ObjectIdentifier
 }
 
 func NewObjectIdentifierOidHandler(val ObjectIdentifier, writable bool) *ObjectIdentifierOidHandler {
-	return &ObjectIdentifierOidHandler{val, writable}
+	if val == nil {
+		panic("value must be specified")
+	}
+	handler := new(ObjectIdentifierOidHandler)
+	handler.val = val
+	handler.writable = writable
+	return handler
 }
 
-func (handler *ObjectIdentifierOidHandler) Get(oid ObjectIdentifier) (Varbind, error) {
+func (handler *ObjectIdentifierOidHandler) Get(oid ObjectIdentifier, txn interface{}) (Varbind, error) {
 	return NewObjectIdentifierVarbind(oid, handler.val), nil
 }
 
-func (handler *ObjectIdentifierOidHandler) Set(vb_base Varbind) error {
+func (handler *ObjectIdentifierOidHandler) Set(vb_base Varbind, txn interface{}) (Varbind, error) {
 	if !handler.writable {
-		return objectNotWriteableError{}
+		return nil, objectNotWriteableError{}
 	}
 	vb, ok := vb_base.(*ObjectIdentifierVarbind)
 	if !ok {
-		return incorrectVarbindTypeError{vb_base, &ObjectIdentifierVarbind{}}
+		return nil, incorrectVarbindTypeError{vb_base, new(ObjectIdentifierVarbind)}
+	}
+	if vb.val == nil {
+		panic(fmt.Sprintf("value must be specified: OID: %v", vb.oid))
 	}
 	handler.val = vb.val
-	return nil
+	return vb, nil
 }
