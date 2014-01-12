@@ -91,16 +91,10 @@ func (ctxt *snmpContext) SetDecodeErrorLogging(enabled bool) {
 	ctxt.logDecodeErrors = enabled
 }
 
-func newContext(name string, maxTargets int, startRequestTracker bool, port int, logger Logger) *snmpContext {
+func (ctxt *snmpContext) initContext(name string, maxTargets int, startRequestTracker bool, port int, logger Logger) {
 	if logger == nil {
 		panic("logger must not be nil")
 	}
-	ctxt := new(snmpContext)
-	ctxt.initContext(name, maxTargets, startRequestTracker, port, logger)
-	return ctxt
-}
-
-func (ctxt *snmpContext) initContext(name string, maxTargets int, startRequestTracker bool, port int, logger Logger) {
 	ctxt.name = name
 	ctxt.Logger = logger
 	ctxt.maxTargets = maxTargets
@@ -119,6 +113,7 @@ func (ctxt *snmpContext) initContext(name string, maxTargets int, startRequestTr
 	if startRequestTracker {
 		ctxt.startRequestTracker(maxTargets)
 	}
+	ctxt.startRxAndTx()
 	go ctxt.monitor()
 }
 
@@ -151,12 +146,15 @@ func (ctxt *snmpContext) monitor() {
 			ctxt.inboundDied = nil
 		case <-restartTimer:
 			restartTimer = nil
-			ctxt.inboundDied = make(chan bool)
-			ctxt.startReceiver(ctxt.port)
-			ctxt.outboundDied = make(chan bool)
-			go ctxt.processOutboundQueue()
 		}
 	}
+}
+
+func (ctxt *snmpContext) startRxAndTx() {
+	ctxt.inboundDied = make(chan bool)
+	ctxt.startReceiver(ctxt.port)
+	ctxt.outboundDied = make(chan bool)
+	go ctxt.processOutboundQueue()
 }
 
 //
