@@ -182,7 +182,6 @@ const (
 	StatType_UNKNOWN_REQUESTS_TIMED_OUT
 	StatType_REQUESTS_TIMED_OUT
 	StatType_REQUEST_RETRIES_EXHAUSTED
-	StatType_UNDECODABLE_MESSAGES_RECEIVED
 	StatType_GET_REQUESTS_RECEIVED
 	StatType_GET_NEXT_REQUESTS_RECEIVED
 	StatType_GET_BULK_REQUESTS_RECEIVED
@@ -192,6 +191,56 @@ const (
 	StatType_V2_TRAPS_RECEIVED
 	StatType_COMMUNITY_REQUEST_RECEIVED_WITH_NO_REQUEST_PROCESSOR
 )
+
+func (statType StatType) String() string {
+	switch statType {
+	case StatType_INBOUND_CONNECTION_DEATH:
+		return "Inbound Connection Death"
+	case StatType_INBOUND_CONNECTION_CLOSE:
+		return "Inbound Connection Close"
+	case StatType_OUTBOUND_CONNECTION_DEATH:
+		return "Outbound Connection Death"
+	case StatType_OUTBOUND_CONNECTION_CLOSE:
+		return "Outbound Connection Close"
+	case StatType_INBOUND_MESSAGES_RECEIVED:
+		return "Inbound Messages Received"
+	case StatType_INBOUND_MESSAGES_UNDECODABLE:
+		return "Inbound Message Undecodable"
+	case StatType_OUTBOUND_MESSAGES_SENT:
+		return "Outbound Messages Sent"
+	case StatType_RESPONSES_RELEASED_TO_CLIENT:
+		return "Responses Released To Client"
+	case StatType_RESPONSES_DROPPED_BY_REQUEST_TRACKER:
+		return "Responses Dropped By Request Tracker"
+	case StatType_REQUESTS_SENT:
+		return "Requests Sent"
+	case StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL:
+		return "Requests Forwared To Flow Control"
+	case StatType_UNKNOWN_REQUESTS_TIMED_OUT:
+		return "Unknown Requests Timed Out"
+	case StatType_REQUESTS_TIMED_OUT:
+		return "Requests Timed Out"
+	case StatType_REQUEST_RETRIES_EXHAUSTED:
+		return "Request Retries Exhausted"
+	case StatType_GET_REQUESTS_RECEIVED:
+		return "Get Requests Received"
+	case StatType_GET_NEXT_REQUESTS_RECEIVED:
+		return "GetNext Requests Received"
+	case StatType_GET_BULK_REQUESTS_RECEIVED:
+		return "GetBulk Requests Received"
+	case StatType_SET_REQUESTS_RECEIVED:
+		return "Set Requests Received"
+	case StatType_RESPONSES_RECEIVED:
+		return "Responses Received"
+	case StatType_V1_TRAPS_RECEIVED:
+		return "V1 Traps Received"
+	case StatType_V2_TRAPS_RECEIVED:
+		return "V2 Traps Received"
+	case StatType_COMMUNITY_REQUEST_RECEIVED_WITH_NO_REQUEST_PROCESSOR:
+		return "Community Request Received With No Request Processor"
+	}
+	return "Unknown Stat Type"
+}
 
 type snmpContextStatRequest struct {
 	allStats     bool
@@ -206,17 +255,17 @@ func (ctxt *snmpContext) startStatTracker() {
 	go ctxt.trackStats()
 }
 
-type SnmpStatsBin struct {
+type StatsBin struct {
 	Stats      map[StatType]int
 	NumSeconds int
 }
 
-func newSnmpStatsBin() *SnmpStatsBin {
-	return &SnmpStatsBin{make(map[StatType]int), 0}
+func newStatsBin() *StatsBin {
+	return &StatsBin{make(map[StatType]int), 0}
 }
 
-func (bin *SnmpStatsBin) copy() *SnmpStatsBin {
-	binCopy := newSnmpStatsBin()
+func (bin *StatsBin) copy() *StatsBin {
+	binCopy := newStatsBin()
 	for k, v := range bin.Stats {
 		binCopy.Stats[k] = v
 	}
@@ -225,8 +274,8 @@ func (bin *SnmpStatsBin) copy() *SnmpStatsBin {
 }
 
 func (ctxt *snmpContext) trackStats() {
-	fifteenMinuteBins := make([]*SnmpStatsBin, 97) // 96 fifteen minute bins in a day, plus one for the current bin
-	fifteenMinuteBins[0] = newSnmpStatsBin()
+	fifteenMinuteBins := make([]*StatsBin, 97) // 96 fifteen minute bins in a day, plus one for the current bin
+	fifteenMinuteBins[0] = newStatsBin()
 	ticker := time.NewTicker(1 * time.Second)
 	nextRollover := int(time.Now().Sub(time.Now().Truncate(15 * time.Minute)).Seconds())
 	ctxt.Debugf("Ctxt %s: stats tracker initializing", ctxt.name)
@@ -256,7 +305,7 @@ func (ctxt *snmpContext) trackStats() {
 				for idx := len(fifteenMinuteBins); idx > 0; idx-- {
 					fifteenMinuteBins[idx] = fifteenMinuteBins[idx-1]
 				}
-				fifteenMinuteBins[0] = newSnmpStatsBin()
+				fifteenMinuteBins[0] = newStatsBin()
 				nextRollover = int(15 * time.Minute.Seconds())
 			}
 
@@ -287,14 +336,14 @@ func (ctxt *snmpContext) GetStat(statType StatType, bin uint8) (int, error) {
 	return statVal, nil
 }
 
-func (ctxt *snmpContext) GetStatsBin(bin uint8) (*SnmpStatsBin, error) {
+func (ctxt *snmpContext) GetStatsBin(bin uint8) (*StatsBin, error) {
 	responseChan := make(chan interface{})
 	ctxt.statRequests <- snmpContextStatRequest{allStats: true, bin: bin, responseChan: responseChan}
 	resp := <-responseChan
 	if resp == nil {
 		return nil, fmt.Errorf("The requested bin (%d) is not available", bin)
 	}
-	stats, ok := resp.(*SnmpStatsBin)
+	stats, ok := resp.(*StatsBin)
 	if !ok {
 		ctxt.Errorf("Couldn't cast response %#v to map", resp)
 		return nil, fmt.Errorf("Internal error, couldn't retrieve stat")
@@ -471,7 +520,7 @@ func (ctxt *snmpContext) listen() {
 func (ctxt *snmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 	decodedMsg, err := decodeMsg(msg)
 	if err != nil {
-		ctxt.incrementStat(StatType_UNDECODABLE_MESSAGES_RECEIVED)
+		ctxt.incrementStat(StatType_INBOUND_MESSAGES_UNDECODABLE)
 		if ctxt.logDecodeErrors {
 			ctxt.Debugf("Ctxt %s: Couldn't decode message % #x. Err: %s\n", ctxt.name, msg, err)
 		}

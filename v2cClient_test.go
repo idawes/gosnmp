@@ -173,14 +173,15 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1))+0.2))
 					statsBin, err := clientCtxt.GetStatsBin(0)
 					Ω(err).Should(BeNil())
-					Ω(statsBin.Stats[snmp.StatType_RESPONSES_RECEIVED]).Should(Equal(0))
-					Ω(statsBin.Stats[snmp.StatType_RESPONSES_DROPPED_BY_REQUEST_TRACKER]).Should(Equal(0))
-					Ω(statsBin.Stats[snmp.StatType_UNKNOWN_REQUESTS_TIMED_OUT]).Should(Equal(0))
-					Ω(statsBin.Stats[snmp.StatType_REQUESTS_TIMED_OUT]).Should(Equal(numClients * retries))
-					Ω(statsBin.Stats[snmp.StatType_REQUESTS_SENT]).Should(Equal(numClients))
-					Ω(statsBin.Stats[snmp.StatType_REQUEST_RETRIES_EXHAUSTED]).Should(Equal(numClients))
-					Ω(statsBin.Stats[snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL]).Should(Equal(numClients * (retries + 1)))
-					Ω(statsBin.Stats[snmp.StatType_OUTBOUND_MESSAGES_SENT]).Should(Equal(numClients * (retries + 1)))
+					requestCount := numClients
+					msgCount := requestCount * (retries + 1)
+					validateStatsBin(statsBin, map[snmp.StatType]int{
+						snmp.StatType_REQUESTS_SENT:                      requestCount,
+						snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
+						snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
+						snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL: msgCount,
+						snmp.StatType_OUTBOUND_MESSAGES_SENT:             msgCount,
+					})
 					close(done)
 				}, float64(timeoutSeconds*(retries+1))+2)
 			}
@@ -241,21 +242,22 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1)*numRequests)+0.2))
 						statsBin, err := clientCtxt.GetStatsBin(0)
 						Ω(err).Should(BeNil())
-						Ω(statsBin.Stats[snmp.StatType_RESPONSES_RECEIVED]).Should(Equal(0))
-						Ω(statsBin.Stats[snmp.StatType_RESPONSES_DROPPED_BY_REQUEST_TRACKER]).Should(Equal(0))
-						Ω(statsBin.Stats[snmp.StatType_UNKNOWN_REQUESTS_TIMED_OUT]).Should(Equal(0))
-						Ω(statsBin.Stats[snmp.StatType_REQUESTS_TIMED_OUT]).Should(Equal(numClients * numRequests * retries))
-						Ω(statsBin.Stats[snmp.StatType_REQUESTS_SENT]).Should(Equal(numClients * numRequests))
-						Ω(statsBin.Stats[snmp.StatType_REQUEST_RETRIES_EXHAUSTED]).Should(Equal(numClients * numRequests))
-						Ω(statsBin.Stats[snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL]).Should(Equal(numClients * numRequests * (retries + 1)))
-						Ω(statsBin.Stats[snmp.StatType_OUTBOUND_MESSAGES_SENT]).Should(Equal(numClients * numRequests * (retries + 1)))
+						requestCount := numClients * numRequests
+						msgCount := requestCount * (retries + 1)
+						validateStatsBin(statsBin, map[snmp.StatType]int{
+							snmp.StatType_REQUESTS_SENT:                      requestCount,
+							snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
+							snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
+							snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL: msgCount,
+							snmp.StatType_OUTBOUND_MESSAGES_SENT:             msgCount,
+						})
 						close(done)
 					}, float64(timeoutSeconds*(retries+1)*numRequests)+2)
 				})
 			})
 		})
 
-		FDescribe("sending a request to an active agent", func() {
+		Describe("sending a request to an active agent", func() {
 			var (
 				agent *snmp.Agent
 			)
@@ -290,16 +292,25 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					}
 					waitGroup.Wait()
 					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(0.2)))
+					// Check Client stats
 					statsBin, err := clientCtxt.GetStatsBin(0)
 					Ω(err).Should(BeNil())
-					Ω(statsBin.Stats[snmp.StatType_RESPONSES_RECEIVED]).Should(Equal(1))
-					Ω(statsBin.Stats[snmp.StatType_RESPONSES_DROPPED_BY_REQUEST_TRACKER]).Should(Equal(0))
-					Ω(statsBin.Stats[snmp.StatType_UNKNOWN_REQUESTS_TIMED_OUT]).Should(Equal(0))
-					Ω(statsBin.Stats[snmp.StatType_REQUESTS_TIMED_OUT]).Should(Equal(numClients * retries))
-					Ω(statsBin.Stats[snmp.StatType_REQUESTS_SENT]).Should(Equal(numClients))
-					Ω(statsBin.Stats[snmp.StatType_REQUEST_RETRIES_EXHAUSTED]).Should(Equal(0))
-					Ω(statsBin.Stats[snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL]).Should(Equal(numClients))
-					Ω(statsBin.Stats[snmp.StatType_OUTBOUND_MESSAGES_SENT]).Should(Equal(numClients))
+					validateStatsBin(statsBin, map[snmp.StatType]int{
+						snmp.StatType_RESPONSES_RECEIVED:                 numClients,
+						snmp.StatType_REQUESTS_SENT:                      numClients,
+						snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL: numClients,
+						snmp.StatType_OUTBOUND_MESSAGES_SENT:             numClients,
+						snmp.StatType_INBOUND_MESSAGES_RECEIVED:          numClients,
+						snmp.StatType_RESPONSES_RELEASED_TO_CLIENT:       numClients,
+					})
+					// Check Agent stats
+					statsBin, err = agent.GetStatsBin(0)
+					Ω(err).Should(BeNil())
+					validateStatsBin(statsBin, map[snmp.StatType]int{
+						snmp.StatType_INBOUND_MESSAGES_RECEIVED: numClients,
+						snmp.StatType_GET_REQUESTS_RECEIVED:     numClients,
+						snmp.StatType_OUTBOUND_MESSAGES_SENT:    numClients,
+					})
 					close(done)
 				}, 2)
 			}
@@ -316,4 +327,15 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 			})
 		})
 	})
+}
+
+func validateStatsBin(statsBin *snmp.StatsBin, expectedValues map[snmp.StatType]int) {
+	for statType, val := range statsBin.Stats {
+		expectedVal, ok := expectedValues[statType]
+		if ok {
+			Ω(val).Should(Equal(expectedVal), "StatType: %s", statType)
+		} else {
+			Ω(val).Should(Equal(0), "StatType: %s", statType)
+		}
+	}
 }
