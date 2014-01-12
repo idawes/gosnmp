@@ -44,10 +44,7 @@ type OctetStringVarbind struct { // type 0x04
 }
 
 func NewStringVarbind(oid ObjectIdentifier, val string) *OctetStringVarbind {
-	vb := new(OctetStringVarbind)
-	vb.oid = oid
-	vb.val = []byte(val)
-	return vb
+	return NewOctetStringVarbind(oid, []byte(val))
 }
 
 func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind {
