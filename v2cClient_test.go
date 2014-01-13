@@ -213,42 +213,65 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 		})
 
 		Describe("sending multiple requests to a non-existent agent", func() {
-
-			Context("from a single client", func() {
-				Context("using 0 retries and a timeout of 1 second", func() {
-					timeoutSeconds := 1
-					retries := 0
-					numRequests := 3
-					It("should timeout after the appropriate amount of time", func(done Done) {
-						var waitGroup sync.WaitGroup
-						waitGroup.Add(numRequests)
-						clients[0].Retries = retries
-						clients[0].TimeoutSeconds = timeoutSeconds
-						start := time.Now()
-						for i := 0; i < numRequests; i++ {
-							go func() {
+			ValidateRequestTimeout := func(retries int, timeoutSeconds int, numRequests int) {
+				It("should timeout after the appropriate amount of time", func(done Done) {
+					var waitGroup sync.WaitGroup
+					waitGroup.Add(numRequests * numClients)
+					start := time.Now()
+					for i := 0; i < numClients; i++ {
+						clients[i].Retries = retries
+						clients[i].TimeoutSeconds = timeoutSeconds
+						go func(client *snmp.V2cClient) {
+							for j := 0; j < numRequests; j++ {
 								req := clientCtxt.AllocateV2cGetRequest()
-								clients[0].SendRequest(req)
+								client.SendRequest(req)
 								err := req.GetError()
 								Ω(err).ShouldNot(BeNil())
 								_, ok := err.(snmp.TimeoutError)
-								Ω(ok).Should(BeTrue(), spew.Sdump(req))
+								Ω(ok).Should(BeTrue())
 								waitGroup.Done()
-							}()
-						}
-						waitGroup.Wait()
-						Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1)*numRequests)+0.2))
-						requestCount := numClients * numRequests
-						msgCount := requestCount * (retries + 1)
-						validateStats(clientCtxt, map[snmp.StatType]int{
-							snmp.StatType_REQUESTS_SENT:                      requestCount,
-							snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
-							snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
-							snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL: msgCount,
-							snmp.StatType_OUTBOUND_MESSAGES_SENT:             msgCount,
-						})
-						close(done)
-					}, float64(timeoutSeconds*(retries+1)*numRequests)+2)
+								clientCtxt.FreeV2cRequest(req)
+							}
+						}(clients[i])
+					}
+					waitGroup.Wait()
+					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1)*numRequests)+0.2))
+					requestCount := numClients * numRequests
+					msgCount := requestCount * (retries + 1)
+					validateStats(clientCtxt, map[snmp.StatType]int{
+						snmp.StatType_REQUESTS_SENT:                      requestCount,
+						snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
+						snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
+						snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL: msgCount,
+						snmp.StatType_OUTBOUND_MESSAGES_SENT:             msgCount,
+					})
+					close(done)
+				}, float64(timeoutSeconds*(retries+1)*numRequests)+2)
+
+			}
+			Context("from a single client", func() {
+				Context("using 0 retries and a timeout of 1 second", func() {
+					ValidateRequestTimeout(0, 1, 3)
+				})
+				Context("using 1 retries and a timeout of 2 seconds", func() {
+					ValidateRequestTimeout(1, 2, 3)
+				})
+				Context("using 2 retries and a timeout of 1 second", func() {
+					ValidateRequestTimeout(2, 1, 3)
+				})
+			})
+			Context("from multiple clients", func() {
+				BeforeEach(func() {
+					numClients = 50
+				})
+				Context("using 0 retries and a timeout of 1 second", func() {
+					ValidateRequestTimeout(0, 1, 3)
+				})
+				Context("using 1 retries and a timeout of 2 seconds", func() {
+					ValidateRequestTimeout(1, 2, 3)
+				})
+				Context("using 2 retries and a timeout of 1 second", func() {
+					ValidateRequestTimeout(2, 1, 3)
 				})
 			})
 		})
@@ -310,13 +333,28 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 				Context("using 0 retries and a timeout of 1 second", func() {
 					ValidateResponse(0, 1)
 				})
-				// Context("using 1 retry and a timeout of 2 seconds", func() {
-				// 	ValidateRequestTimeout(1, 2)
-				// })
-				// Context("using 2 retries and a timeout of 1 second", func() {
-				// 	ValidateRequestTimeout(2, 1)
-				// })
+				Context("using 1 retry and a timeout of 2 seconds", func() {
+					ValidateResponse(1, 2)
+				})
+				Context("using 2 retries and a timeout of 1 second", func() {
+					ValidateResponse(2, 1)
+				})
 			})
+			Context("from multiple clients", func() {
+				BeforeEach(func() {
+					numClients = 50
+				})
+				Context("using 0 retries and a timeout of 1 second", func() {
+					ValidateResponse(0, 1)
+				})
+				Context("using 1 retry and a timeout of 2 seconds", func() {
+					ValidateResponse(1, 2)
+				})
+				Context("using 2 retries and a timeout of 1 second", func() {
+					ValidateResponse(2, 1)
+				})
+			})
+
 		})
 	})
 }
