@@ -171,11 +171,9 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					}
 					waitGroup.Wait()
 					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1))+0.2))
-					statsBin, err := clientCtxt.GetStatsBin(0)
-					Ω(err).Should(BeNil())
 					requestCount := numClients
 					msgCount := requestCount * (retries + 1)
-					validateStatsBin(statsBin, map[snmp.StatType]int{
+					validateStats(clientCtxt, map[snmp.StatType]int{
 						snmp.StatType_REQUESTS_SENT:                      requestCount,
 						snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
 						snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
@@ -240,11 +238,9 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						}
 						waitGroup.Wait()
 						Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1)*numRequests)+0.2))
-						statsBin, err := clientCtxt.GetStatsBin(0)
-						Ω(err).Should(BeNil())
 						requestCount := numClients * numRequests
 						msgCount := requestCount * (retries + 1)
-						validateStatsBin(statsBin, map[snmp.StatType]int{
+						validateStats(clientCtxt, map[snmp.StatType]int{
 							snmp.StatType_REQUESTS_SENT:                      requestCount,
 							snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
 							snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
@@ -293,9 +289,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					waitGroup.Wait()
 					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(0.2)))
 					// Check Client stats
-					statsBin, err := clientCtxt.GetStatsBin(0)
-					Ω(err).Should(BeNil())
-					validateStatsBin(statsBin, map[snmp.StatType]int{
+					validateStats(clientCtxt, map[snmp.StatType]int{
 						snmp.StatType_RESPONSES_RECEIVED:                 numClients,
 						snmp.StatType_REQUESTS_SENT:                      numClients,
 						snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL: numClients,
@@ -304,9 +298,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						snmp.StatType_RESPONSES_RELEASED_TO_CLIENT:       numClients,
 					})
 					// Check Agent stats
-					statsBin, err = agent.GetStatsBin(0)
-					Ω(err).Should(BeNil())
-					validateStatsBin(statsBin, map[snmp.StatType]int{
+					validateStats(agent, map[snmp.StatType]int{
 						snmp.StatType_INBOUND_MESSAGES_RECEIVED: numClients,
 						snmp.StatType_GET_REQUESTS_RECEIVED:     numClients,
 						snmp.StatType_OUTBOUND_MESSAGES_SENT:    numClients,
@@ -329,7 +321,9 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 	})
 }
 
-func validateStatsBin(statsBin *snmp.StatsBin, expectedValues map[snmp.StatType]int) {
+func validateStats(provider StatsProvider, expectedValues map[snmp.StatType]int) {
+	statsBin, err := provider.GetStatsBin(0)
+	Ω(err).Should(BeNil())
 	for statType, val := range statsBin.Stats {
 		expectedVal, ok := expectedValues[statType]
 		if ok {
@@ -338,4 +332,8 @@ func validateStatsBin(statsBin *snmp.StatsBin, expectedValues map[snmp.StatType]
 			Ω(val).Should(Equal(0), "StatType: %s", statType)
 		}
 	}
+}
+
+type StatsProvider interface {
+	GetStatsBin(bin uint8) (*snmp.StatsBin, error)
 }
