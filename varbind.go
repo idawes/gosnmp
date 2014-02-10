@@ -8,13 +8,13 @@ import (
 type Varbind interface {
 	//encodeValue returns the number of bytes written to the encoder
 	encodeValue(encoder *berEncoder) (int, error)
-	getOid() ObjectIdentifier
+	GetOid() ObjectIdentifier
 	setOid(oid ObjectIdentifier)
 }
 
 func (encoder *berEncoder) encodeVarbind(vb Varbind) (int, error) {
 	header := encoder.newHeader(snmpBlockType_SEQUENCE)
-	oidLen, err := encoder.encodeObjectIdentifier(vb.getOid())
+	oidLen, err := encoder.encodeObjectIdentifier(vb.GetOid())
 	if err != nil {
 		return 0, err
 	}
@@ -30,7 +30,7 @@ type baseVarbind struct {
 	oid ObjectIdentifier
 }
 
-func (vb *baseVarbind) getOid() ObjectIdentifier {
+func (vb *baseVarbind) GetOid() ObjectIdentifier {
 	return vb.oid
 }
 
@@ -40,7 +40,7 @@ func (vb *baseVarbind) setOid(oid ObjectIdentifier) {
 
 type OctetStringVarbind struct { // type 0x04
 	baseVarbind
-	val []byte
+	Value []byte
 }
 
 func NewStringVarbind(oid ObjectIdentifier, val string) *OctetStringVarbind {
@@ -50,12 +50,12 @@ func NewStringVarbind(oid ObjectIdentifier, val string) *OctetStringVarbind {
 func NewOctetStringVarbind(oid ObjectIdentifier, val []byte) *OctetStringVarbind {
 	vb := new(OctetStringVarbind)
 	vb.oid = oid
-	vb.val = val
+	vb.Value = val
 	return vb
 }
 
 func (vb *OctetStringVarbind) encodeValue(encoder *berEncoder) (int, error) {
-	return encoder.encodeOctetString(vb.val), nil
+	return encoder.encodeOctetString(vb.Value), nil
 }
 
 type NullVarbind struct { // type 0x05
@@ -74,39 +74,39 @@ func (vb *NullVarbind) encodeValue(encoder *berEncoder) (int, error) {
 
 type ObjectIdentifierVarbind struct { // type 0x06
 	baseVarbind
-	val ObjectIdentifier
+	Value ObjectIdentifier
 }
 
 func NewObjectIdentifierVarbind(oid ObjectIdentifier, val ObjectIdentifier) *ObjectIdentifierVarbind {
 	vb := new(ObjectIdentifierVarbind)
 	vb.oid = oid
-	vb.val = val
+	vb.Value = val
 	return vb
 }
 
 func (vb *ObjectIdentifierVarbind) encodeValue(encoder *berEncoder) (int, error) {
-	return encoder.encodeObjectIdentifier(vb.val)
+	return encoder.encodeObjectIdentifier(vb.Value)
 }
 
 type IPv4AddressVarbind struct { // type 0x40
 	baseVarbind
-	val net.IP
+	Value net.IP
 }
 
 func NewIPv4AddressVarbind(oid ObjectIdentifier, val net.IP) *IPv4AddressVarbind {
 	vb := new(IPv4AddressVarbind)
 	vb.oid = oid
-	vb.val = val
+	vb.Value = val
 	return vb
 }
 
 func (vb *IPv4AddressVarbind) encodeValue(encoder *berEncoder) (int, error) {
-	return encoder.encodeIPv4Address(vb.val)
+	return encoder.encodeIPv4Address(vb.Value)
 }
 
 type Counter32Varbind struct { // type 0x41
 	baseVarbind
-	val uint32
+	Value uint32
 }
 
 func NewCounter32Varbind(oid ObjectIdentifier) *Counter32Varbind {
@@ -117,7 +117,7 @@ func NewCounter32Varbind(oid ObjectIdentifier) *Counter32Varbind {
 
 type Gauge32Varbind struct { // type 0x42
 	baseVarbind
-	val uint32
+	Value uint32
 }
 
 func NewGauge32Varbind(oid ObjectIdentifier) *Gauge32Varbind {
@@ -128,7 +128,7 @@ func NewGauge32Varbind(oid ObjectIdentifier) *Gauge32Varbind {
 
 type TimeTicksVarbind struct { // type 0x43
 	baseVarbind
-	val uint32
+	Value uint32
 }
 
 func NewTimeTicksVarbind(oid ObjectIdentifier) *TimeTicksVarbind {
@@ -139,7 +139,7 @@ func NewTimeTicksVarbind(oid ObjectIdentifier) *TimeTicksVarbind {
 
 type OpaqueVarbind struct { // type 0x44
 	baseVarbind
-	val []byte
+	Value []byte
 }
 
 func NewOpaqueVarbind(oid ObjectIdentifier) *OpaqueVarbind {
@@ -150,7 +150,7 @@ func NewOpaqueVarbind(oid ObjectIdentifier) *OpaqueVarbind {
 
 type NsapAddressVarbind struct { // type 0x45
 	baseVarbind
-	val [6]byte
+	Value [6]byte
 }
 
 func NewNsapAddressVarbind(oid ObjectIdentifier) *NsapAddressVarbind {
@@ -161,7 +161,7 @@ func NewNsapAddressVarbind(oid ObjectIdentifier) *NsapAddressVarbind {
 
 type Counter64Varbind struct { // type 0x46
 	baseVarbind
-	val uint64
+	Value uint64
 }
 
 func NewCounter64Varbind(oid ObjectIdentifier) *Counter64Varbind {

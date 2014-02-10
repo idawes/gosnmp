@@ -36,31 +36,32 @@ func (pduType *pduType) String() string {
 }
 
 type SnmpMessage interface {
+	Address() *net.UDPAddr
+	LoggingId() string
 	encode(encoderFactory *berEncoderFactory) ([]byte, error)
 	decode(decoder *berDecoder) error
-	getAddress() *net.UDPAddr
 	setAddress(*net.UDPAddr)
 	getVersion() SnmpVersion
 	setVersion(version SnmpVersion)
-	getpduType() pduType
-	setpduType(pduType pduType)
-	GetLoggingId() string
+	getPduType() pduType
+	setPduType(pduType pduType)
 }
 
 type SnmpRequest interface {
 	SnmpMessage
-	GetFlightTime() time.Duration
+	FlightTime() time.Duration
+	TransportError() error
+	Response() SnmpResponse
+	AddVarbind(Varbind)
+	setTransportError(err error)
 	wait()
 	notify()
-	setRequestId(requestId uint32)
 	getRequestId() uint32
+	setRequestId(requestId uint32)
 	isRetryRequired() bool
 	startTimer(func(SnmpRequest))
 	stopTimer()
-	setError(err error)
-	GetError() error
 	setResponse(resp SnmpResponse)
-	GetResponse() SnmpResponse
 }
 
 type CommunityRequest interface {
@@ -79,11 +80,12 @@ type V2cGetRequest interface {
 
 type V2cSetRequest interface {
 	CommunityRequest
-	AddVarbind(Varbind)
 }
 
 type SnmpResponse interface {
 	SnmpMessage
+	Varbinds() []Varbind
+	ErrorVal() SnmpRequestErrorType
 	getRequestId() uint32
 }
 
@@ -106,24 +108,28 @@ func (msg *baseMsg) setVersion(version SnmpVersion) {
 	msg.version = version
 }
 
-func (msg *baseMsg) getpduType() pduType {
+func (msg *baseMsg) getPduType() pduType {
 	return msg.pduType
 }
 
-func (msg *baseMsg) setpduType(pduType pduType) {
+func (msg *baseMsg) setPduType(pduType pduType) {
 	msg.pduType = pduType
 }
 
-func (msg *baseMsg) getAddress() *net.UDPAddr {
+func (msg *baseMsg) Address() *net.UDPAddr {
 	return msg.address
 }
 
-func (msg *baseMsg) setAddress(addr *net.UDPAddr) {
-	msg.address = addr
+func (msg *baseMsg) setAddress(address *net.UDPAddr) {
+	msg.address = address
 }
 
-func (req *baseMsg) AddVarbind(vb Varbind) {
-	req.varbinds = append(req.varbinds, vb)
+func (msg *baseMsg) AddVarbind(vb Varbind) {
+	msg.varbinds = append(msg.varbinds, vb)
+}
+
+func (msg *baseMsg) Varbinds() []Varbind {
+	return msg.varbinds
 }
 
 func (msg *baseMsg) decodeVarbinds(decoder *berDecoder) (err error) {
@@ -210,7 +216,7 @@ func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (snmpCommu
 	}
 	msg.setVersion(version)
 	msg.setCommunity(community)
-	msg.setpduType(pduType)
+	msg.setPduType(pduType)
 	if err := msg.decode(decoder); err != nil {
 		return nil, err
 	}
@@ -221,20 +227,20 @@ func decodeCommunityMessage(decoder *berDecoder, version SnmpVersion) (snmpCommu
 type communityRequestResponse struct {
 	communityMessage
 	requestId uint32
-	errorVal  int32
+	errorVal  SnmpRequestErrorType
 	errorIdx  int32
 }
 
-func (msg *communityRequestResponse) GetLoggingId() string {
+func (msg *communityRequestResponse) LoggingId() string {
 	return fmt.Sprintf("%s:%d", msg.pduType.String(), msg.requestId)
-}
-
-func (msg *communityRequestResponse) setRequestId(requestId uint32) {
-	msg.requestId = requestId
 }
 
 func (msg *communityRequestResponse) getRequestId() uint32 {
 	return msg.requestId
+}
+
+func (msg *communityRequestResponse) setRequestId(requestId uint32) {
+	msg.requestId = requestId
 }
 
 func (msg *communityRequestResponse) encode(encoderFactory *berEncoderFactory) ([]byte, error) {
@@ -267,9 +273,14 @@ func (msg *communityRequestResponse) decode(decoder *berDecoder) error {
 	if msg.requestId, err = decoder.decodeUint32WithHeader(); err != nil {
 		return err
 	}
-	if msg.errorVal, err = decoder.decodeInt32WithHeader(); err != nil {
+	i32Val, err := decoder.decodeInt32WithHeader()
+	if err != nil {
 		return err
 	}
+	if i32Val > SnmpRequestErrorType_MAX {
+		return fmt.Errorf("Invalid error value: %d", i32Val)
+	}
+	msg.errorVal = SnmpRequestErrorType(i32Val)
 	if msg.errorIdx, err = decoder.decodeInt32WithHeader(); err != nil {
 		return err
 	}
@@ -286,7 +297,7 @@ type communityRequest struct {
 	requestDoneChan  chan bool
 	flightStartTime  time.Time
 	flightTime       time.Duration
-	err              error
+	transportError   error
 }
 
 func newcommunityRequest() *communityRequest {
@@ -335,27 +346,27 @@ func (req *communityRequest) notify() {
 	req.requestDoneChan <- true
 }
 
-func (req *communityRequest) GetFlightTime() time.Duration {
+func (req *communityRequest) FlightTime() time.Duration {
 	return req.flightTime
 }
 
-func (req *communityRequest) setError(err error) {
-	req.err = err
+func (req *communityRequest) TransportError() error {
+	return req.transportError
 }
 
-func (req *communityRequest) GetError() (err error) {
-	return req.err
+func (req *communityRequest) setTransportError(err error) {
+	req.transportError = err
+}
+
+func (req *communityRequest) Response() SnmpResponse {
+	return req.response
 }
 
 func (req *communityRequest) setResponse(resp SnmpResponse) {
 	req.response = resp
 }
 
-func (req *communityRequest) GetResponse() (resp SnmpResponse) {
-	return req.response
-}
-
-func (req *communityRequest) GetRequestType() (requestType pduType) {
+func (req *communityRequest) RequestType() pduType {
 	return req.pduType
 }
 
@@ -382,6 +393,14 @@ type communityResponse struct {
 	communityRequestResponse
 }
 
+func (resp *communityResponse) ErrorIdx() int32 {
+	return resp.errorIdx
+}
+
+func (resp *communityResponse) ErrorVal() SnmpRequestErrorType {
+	return resp.errorVal
+}
+
 type V1Trap struct {
 	communityMessage
 	enterprise   []uint32
@@ -391,7 +410,7 @@ type V1Trap struct {
 	timeStamp    uint32
 }
 
-func (msg *V1Trap) GetLoggingId() string {
+func (msg *V1Trap) LoggingId() string {
 	return fmt.Sprintf("%s:%d", msg.pduType, msg.timeStamp)
 }
 

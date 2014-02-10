@@ -6,7 +6,6 @@ import (
 	"net"
 	"strconv"
 	"sync"
-	// "sync"
 )
 
 type V2cClient struct {
@@ -29,7 +28,7 @@ func (ctxt *ClientContext) NewV2cClient(community string, address string) (*V2cC
 // It uses default TimeoutSeconds and Retries values of 10 and 2, meaning that by default, requests sent through this client will be sent
 // 3 times, with 10 seconds in between sends, for an overall timeout of 30 seconds.
 // This client is only intended to be used by a single goroutine, and as such, all calls to SendRequest() when a request is already in
-// flight will cause the the calling goroutine to be blocked until all preceding calls to SendRequest are fully resolved.
+// flight will cause the the calling goroutine to be blocked until all preceding calls to SendRequest return.
 func (ctxt *ClientContext) NewV2cClientWithPort(community string, address string, port int) (*V2cClient, error) {
 	var err error
 	client := new(V2cClient)

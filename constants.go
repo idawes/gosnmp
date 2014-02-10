@@ -40,26 +40,27 @@ const (
 	snmpBlockType_END_OF_MIB_VIEW                 = 0x82
 )
 
-type snmpRequestErrorType int32
+type SnmpRequestErrorType int32
 
 const (
-	snmpRequestErrorType_NO_ERROR             snmpRequestErrorType = 0
-	snmpRequestErrorType_TOO_BIG                                   = 1
-	snmpRequestErrorType_NO_SUCH_NAME                              = 2
-	snmpRequestErrorType_BAD_VALUE                                 = 3
-	snmpRequestErrorType_READ_ONLY                                 = 4
-	snmpRequestErrorType_GENERIC_ERROR                             = 5
-	snmpRequestErrorType_NO_ACCESS                                 = 6
-	snmpRequestErrorType_WRONG_TYPE                                = 7
-	snmpRequestErrorType_WRONG_LENGTH                              = 8
-	snmpRequestErrorType_WRONG_ENCODING                            = 9
-	snmpRequestErrorType_WRONG_VALUE                               = 10
-	snmpRequestErrorType_NO_CREATION                               = 11
-	snmpRequestErrorType_INCONSISTENT_VALUE                        = 12
-	snmpRequestErrorType_RESOURCE_UNAVAILABLE                      = 13
-	snmpRequestErrorType_COMMIT_FAILED                             = 14
-	snmpRequestErrorType_UNDO_FAILED                               = 15
-	snmpRequestErrorType_AUTHORIZATION_ERROR                       = 16
-	snmpRequestErrorType_NOT_WRITABLE                              = 17
-	snmpRequestErrorType_INCONSISTENT_NAME                         = 18
+	SnmpRequestErrorType_NO_ERROR             SnmpRequestErrorType = 0
+	SnmpRequestErrorType_TOO_BIG                                   = 1
+	SnmpRequestErrorType_NO_SUCH_NAME                              = 2
+	SnmpRequestErrorType_BAD_VALUE                                 = 3
+	SnmpRequestErrorType_READ_ONLY                                 = 4
+	SnmpRequestErrorType_GENERIC_ERROR                             = 5
+	SnmpRequestErrorType_NO_ACCESS                                 = 6
+	SnmpRequestErrorType_WRONG_TYPE                                = 7
+	SnmpRequestErrorType_WRONG_LENGTH                              = 8
+	SnmpRequestErrorType_WRONG_ENCODING                            = 9
+	SnmpRequestErrorType_WRONG_VALUE                               = 10
+	SnmpRequestErrorType_NO_CREATION                               = 11
+	SnmpRequestErrorType_INCONSISTENT_VALUE                        = 12
+	SnmpRequestErrorType_RESOURCE_UNAVAILABLE                      = 13
+	SnmpRequestErrorType_COMMIT_FAILED                             = 14
+	SnmpRequestErrorType_UNDO_FAILED                               = 15
+	SnmpRequestErrorType_AUTHORIZATION_ERROR                       = 16
+	SnmpRequestErrorType_NOT_WRITABLE                              = 17
+	SnmpRequestErrorType_INCONSISTENT_NAME                         = 18
+	SnmpRequestErrorType_MAX                                       = 18
 )

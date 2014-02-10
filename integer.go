@@ -8,22 +8,22 @@ import (
 // IntegerVarbind stuff
 type IntegerVarbind struct { // type 0x02
 	baseVarbind
-	val int32
+	Value int32
 }
 
 func NewIntegerVarbind(oid ObjectIdentifier, val int32) *IntegerVarbind {
 	vb := new(IntegerVarbind)
 	vb.oid = oid
-	vb.val = val
+	vb.Value = val
 	return vb
 }
 
 func (vb *IntegerVarbind) encodeValue(encoder *berEncoder) (int, error) {
-	return encoder.encodeInteger(int64(vb.val)), nil
+	return encoder.encodeInteger(int64(vb.Value)), nil
 }
 
 func (vb *IntegerVarbind) decodeValue(decoder *berDecoder, valueLength int) (err error) {
-	vb.val, err = decoder.decodeInt32(valueLength)
+	vb.Value, err = decoder.decodeInt32(valueLength)
 	return
 }
 

@@ -45,6 +45,10 @@ type RequestProcessor interface {
 	processcommunityRequest(*communityRequest)
 }
 
+type berEncodable interface {
+	encode(encoderFactory *berEncoderFactory) ([]byte, error)
+}
+
 type snmpContext struct {
 	Logger
 	logDecodeErrors bool
@@ -416,9 +420,9 @@ func (ctxt *snmpContext) trackRequests() {
 				ctxt.outboundFlowControlQueue <- req
 			} else {
 				delete(ctxt.outstandingRequests, req.getRequestId())
-				req.setError(TimeoutError{})
+				req.setTransportError(TimeoutError{})
 				ctxt.incrementStat(StatType_REQUEST_RETRIES_EXHAUSTED)
-				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, req.GetLoggingId())
+				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, req.LoggingId())
 				req.notify()
 			}
 
@@ -452,7 +456,7 @@ func (ctxt *snmpContext) processOutboundQueue() {
 				continue
 			}
 			ctxt.Debugf("Ctxt %s: Sending message:\n%s", ctxt.name, spew.Sdump(msg))
-			if n, err := ctxt.conn.WriteToUDP(encodedMsg, msg.getAddress()); err != nil || n != len(encodedMsg) {
+			if n, err := ctxt.conn.WriteToUDP(encodedMsg, msg.Address()); err != nil || n != len(encodedMsg) {
 				if strings.HasSuffix(err.Error(), "closed network connection") {
 					ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to closed connection", ctxt.name)
 					ctxt.incrementStat(StatType_OUTBOUND_CONNECTION_CLOSE)
@@ -532,7 +536,7 @@ func (ctxt *snmpContext) processIncomingMessage(msg []byte, addr *net.UDPAddr) {
 }
 
 func (ctxt *snmpContext) recordIncomingMessage(msg SnmpMessage) {
-	switch msg.getpduType() {
+	switch msg.getPduType() {
 	case pduType_GET_REQUEST:
 		ctxt.incrementStat(StatType_GET_REQUESTS_RECEIVED)
 	case pduType_GET_NEXT_REQUEST:

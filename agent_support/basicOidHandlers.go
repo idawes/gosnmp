@@ -1,7 +1,8 @@
-package gosnmp
+package agent_support
 
 import (
 	"fmt"
+	. "github.com/idawes/gosnmp"
 )
 
 type objectNotWriteableError struct {
@@ -18,7 +19,7 @@ type incorrectVarbindTypeError struct {
 }
 
 func (e incorrectVarbindTypeError) Error() string {
-	return fmt.Sprintf("Incorrect varbind type for: %v, got: %T, expecting: %d", e.vb.getOid(), e.vb, e.expected)
+	return fmt.Sprintf("Incorrect varbind type for: %v, got: %T, expecting: %d", e.vb.GetOid(), e.vb, e.expected)
 }
 
 type basicOidHandler struct {
@@ -59,7 +60,7 @@ func (handler *IntOidHandler) Set(vb_base Varbind) error {
 	if !ok {
 		return incorrectVarbindTypeError{vb_base, new(IntegerVarbind)}
 	}
-	handler.val = vb.val
+	handler.val = vb.Value
 	return nil
 }
 
@@ -96,10 +97,10 @@ func (handler *OctetStringOidHandler) Set(vb_base Varbind, txn interface{}) (Var
 	if !ok {
 		return nil, incorrectVarbindTypeError{vb_base, new(OctetStringVarbind)}
 	}
-	if vb.val == nil {
-		panic(fmt.Sprintf("value must be specified: OID: %v", vb.oid))
+	if vb.Value == nil {
+		panic(fmt.Sprintf("value must be specified: GetOid(): %v", vb.GetOid()))
 	}
-	handler.val = vb.val
+	handler.val = vb.Value
 	return vb, nil
 }
 
@@ -132,9 +133,9 @@ func (handler *ObjectIdentifierOidHandler) Set(vb_base Varbind, txn interface{})
 	if !ok {
 		return nil, incorrectVarbindTypeError{vb_base, new(ObjectIdentifierVarbind)}
 	}
-	if vb.val == nil {
-		panic(fmt.Sprintf("value must be specified: OID: %v", vb.oid))
+	if vb.Value == nil {
+		panic(fmt.Sprintf("value must be specified: GetOid(): %v", vb.GetOid()))
 	}
-	handler.val = vb.val
+	handler.val = vb.Value
 	return vb, nil
 }

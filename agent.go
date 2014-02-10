@@ -38,18 +38,18 @@ func (agent *Agent) processcommunityRequest(req *communityRequest) {
 	resp := req.createResponse()
 	txn := agent.txnProvider.StartTxn()
 	if txn == nil {
-		resp.errorVal = snmpRequestErrorType_RESOURCE_UNAVAILABLE
+		resp.errorVal = SnmpRequestErrorType_RESOURCE_UNAVAILABLE
 		resp.errorIdx = 1
 	}
 	for _, requestVb := range req.varbinds {
-		node := agent.lookupHandler(requestVb.getOid())
+		node := agent.lookupHandler(requestVb.GetOid())
 		if node == nil {
-			resp.AddVarbind(NewNoSuchObjectVarbind(requestVb.getOid()))
+			resp.AddVarbind(NewNoSuchObjectVarbind(requestVb.GetOid()))
 			continue
 		}
-		switch req.GetRequestType() {
+		switch req.pduType {
 		case pduType_GET_REQUEST:
-			responseVb, err := node.handler.Get(requestVb.getOid(), txn)
+			responseVb, err := node.handler.Get(requestVb.GetOid(), txn)
 			if err != nil {
 				continue
 			}
@@ -79,7 +79,7 @@ func (agent *Agent) lookupHandler(oid ObjectIdentifier) *oidTreeNode {
 		// The node we looked up doesn't match the request OID. Note that it's ok for the request OID to be more
 		// specific than the OID specified by the handler... in fact for all but the simplest requests, it's pretty much
 		// guaranteed, where the request OID will specify a row in a table, or some extra information on top of the base
-		// handler oid.
+		// handler OID.
 		return nil
 	}
 	return node

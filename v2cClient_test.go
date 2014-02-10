@@ -3,8 +3,8 @@ package gosnmp_test
 import (
 	"fmt"
 	"github.com/cihub/seelog"
-	"github.com/davecgh/go-spew/spew"
 	snmp "github.com/idawes/gosnmp"
+	handlers "github.com/idawes/gosnmp/agent_support"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"math"
@@ -111,8 +111,8 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 			ValidateRequest := func() {
 				It("should be possible", func() {
 					Ω(req).ShouldNot(BeNil())
-					Ω(req.GetError()).Should(BeNil())
-					Ω(req.GetResponse()).Should(BeNil())
+					Ω(req.TransportError()).Should(BeNil())
+					Ω(req.Response()).Should(BeNil())
 				})
 			}
 			AfterEach(func() {
@@ -120,15 +120,15 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 			})
 
 			Context("as a GET request", func() {
-				Context("with no OIDS", func() {
+				Context("with no GetOid()S", func() {
 					BeforeEach(func() {
 						req = clientCtxt.AllocateV2cGetRequest()
 					})
 					ValidateRequest()
 				})
-				Context("with a predefined set of OIDS", func() {
+				Context("with a predefined set of GetOid()S", func() {
 					BeforeEach(func() {
-						oids := []snmp.ObjectIdentifier{snmp.SYS_OBJECT_ID_OID, snmp.SYS_NAME_OID, snmp.SYS_LOCATION_OID, snmp.SYS_DESCR_OID, snmp.SYS_CONTACT_OID, snmp.SYS_UPTIME_OID}
+						oids := []snmp.ObjectIdentifier{snmp.SYS_OBJECT_IDoid, snmp.SYS_NAMEoid, snmp.SYS_LOCATIONoid, snmp.SYS_DESCRoid, snmp.SYS_CONTACToid, snmp.SYS_UPTIMEoid}
 						req = clientCtxt.AllocateV2cGetRequestWithOids(oids)
 					})
 					ValidateRequest()
@@ -161,7 +161,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						go func(client *snmp.V2cClient) {
 							req := clientCtxt.AllocateV2cGetRequest()
 							client.SendRequest(req)
-							err := req.GetError()
+							err := req.TransportError()
 							Ω(err).ShouldNot(BeNil())
 							_, ok := err.(snmp.TimeoutError)
 							Ω(ok).Should(BeTrue())
@@ -225,7 +225,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 							for j := 0; j < numRequests; j++ {
 								req := clientCtxt.AllocateV2cGetRequest()
 								client.SendRequest(req)
-								err := req.GetError()
+								err := req.TransportError()
 								Ω(err).ShouldNot(BeNil())
 								_, ok := err.(snmp.TimeoutError)
 								Ω(ok).Should(BeTrue())
@@ -282,8 +282,8 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 			)
 			BeforeEach(func() {
 				agent = snmp.NewAgentWithPort("testAgent", 10, 2000, logger, new(fakeTransactionProvider))
-				agent.RegisterSingleVarOidHandler(snmp.SYS_OBJECT_ID_OID, snmp.NewObjectIdentifierOidHandler(snmp.ObjectIdentifier{1, 3, 6, 1, 4, 1, 424242, 1, 1}, false))
-				agent.RegisterSingleVarOidHandler(snmp.SYS_DESCR_OID, snmp.NewStringOidHandler("Test System Description", false))
+				agent.RegisterSingleVarOidHandler(snmp.SYS_OBJECT_IDoid, handlers.NewObjectIdentifierOidHandler(snmp.ObjectIdentifier{1, 3, 6, 1, 4, 1, 424242, 1, 1}, false))
+				agent.RegisterSingleVarOidHandler(snmp.SYS_DESCRoid, handlers.NewStringOidHandler("Test System Description", false))
 				agent.SetDecodeErrorLogging(true)
 			})
 			AfterEach(func() {
@@ -298,13 +298,16 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
 						go func(client *snmp.V2cClient) {
-							req := clientCtxt.AllocateV2cGetRequestWithOids([]snmp.ObjectIdentifier{snmp.SYS_OBJECT_ID_OID, snmp.SYS_DESCR_OID})
+							req := clientCtxt.AllocateV2cGetRequestWithOids([]snmp.ObjectIdentifier{snmp.SYS_OBJECT_IDoid, snmp.SYS_DESCRoid})
 							client.SendRequest(req)
-							err := req.GetError()
+							err := req.TransportError()
 							Ω(err).Should(BeNil())
-							resp := req.GetResponse()
+							resp := req.Response()
 							Ω(resp).ShouldNot(BeNil())
-							logger.Debugf("Response %s", spew.Sdump(resp))
+
+							// for _, varbind := range resp.Varbinds() {
+
+							// }
 							clientCtxt.FreeV2cRequest(req)
 							waitGroup.Done()
 						}(clients[i])
