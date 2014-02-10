@@ -1,7 +1,7 @@
 package gosnmp
 
 import (
-	"code.google.com/p/biogo.llrb"
+	"code.google.com/p/biogo.store/llrb"
 )
 
 type TransactionProvider interface {
