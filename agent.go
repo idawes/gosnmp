@@ -2,6 +2,7 @@ package gosnmp
 
 import (
 	"code.google.com/p/biogo.store/llrb"
+	"sync"
 )
 
 type TransactionProvider interface {
@@ -17,6 +18,7 @@ type TransactionProvider interface {
 
 type Agent struct {
 	snmpContext
+	oidTreeLock sync.Mutex
 	oidTree     llrb.Tree
 	txnProvider TransactionProvider
 }
@@ -27,10 +29,10 @@ func NewAgent(name string, maxTargets int, logger Logger, txnProvider Transactio
 
 func NewAgentWithPort(name string, maxTargets int, port int, logger Logger, txnProvider TransactionProvider) *Agent {
 	agent := new(Agent)
-	agent.snmpContext.initContext(name, maxTargets, false, port, logger)
 	agent.incomingRequestProcessor = agent
 	agent.oidTree = llrb.Tree{}
 	agent.txnProvider = txnProvider
+	agent.snmpContext.initContext(name, maxTargets, false, port, logger)
 	return agent
 }
 
@@ -68,6 +70,8 @@ func (agent *Agent) processcommunityRequest(req *communityRequest) {
 }
 
 func (agent *Agent) lookupHandler(oid ObjectIdentifier) *oidTreeNode {
+	agent.oidTreeLock.Lock()
+	defer agent.oidTreeLock.Unlock()
 	tnode := agent.oidTree.Ceil(oidTreeLookup(oid))
 	if tnode == nil {
 		// This should only ever hit if no handlers have been added to this agent... Very much a corner case.
@@ -95,6 +99,8 @@ type SingleVarOidHandler interface {
 }
 
 func (agent *Agent) RegisterSingleVarOidHandler(oid ObjectIdentifier, handler SingleVarOidHandler) error {
+	agent.oidTreeLock.Lock()
+	defer agent.oidTreeLock.Unlock()
 	agent.oidTree.Insert(&oidTreeNode{oid, false, handler})
 	return nil
 }

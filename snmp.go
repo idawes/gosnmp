@@ -306,7 +306,7 @@ func (ctxt *snmpContext) trackStats() {
 		case <-ticker.C:
 			fifteenMinuteBins[0].NumSeconds++
 			if fifteenMinuteBins[0].NumSeconds == nextRollover {
-				for idx := len(fifteenMinuteBins); idx > 0; idx-- {
+				for idx := len(fifteenMinuteBins) - 1; idx > 0; idx-- {
 					fifteenMinuteBins[idx] = fifteenMinuteBins[idx-1]
 				}
 				fifteenMinuteBins[0] = newStatsBin()
@@ -379,51 +379,49 @@ func (ctxt *snmpContext) sendRequest(req SnmpRequest) {
 
 func (ctxt *snmpContext) trackRequests() {
 	var nextRequestId uint32 = 0
-	var (
-		resp SnmpResponse
-		req  SnmpRequest
-	)
 	ctxt.Debugf("Ctxt %s: request tracker initializing", ctxt.name)
 	for {
 		select {
-		case req = <-ctxt.requestsFromClients:
+		case outboundReq := <-ctxt.requestsFromClients:
+			outboundReq.lock()
 			nextRequestId += 1
-			req.setRequestId(nextRequestId)
-			ctxt.outstandingRequests[nextRequestId] = req
-			req.startTimer(ctxt.handleRequestTimeout)
+			outboundReq.setRequestId(nextRequestId)
+			ctxt.outstandingRequests[nextRequestId] = outboundReq
+			outboundReq.startTimer(ctxt.handleRequestTimeout)
 			ctxt.incrementStat(StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL)
-			ctxt.outboundFlowControlQueue <- req
+			outboundReq.unlock()
+			ctxt.outboundFlowControlQueue <- outboundReq
 
-		case resp = <-ctxt.responsesFromAgents:
-			req = ctxt.outstandingRequests[resp.getRequestId()]
-			if req == nil {
+		case responseFromRemoteAgent := <-ctxt.responsesFromAgents:
+			originatingRequest := ctxt.outstandingRequests[responseFromRemoteAgent.getRequestId()]
+			if originatingRequest == nil {
 				ctxt.incrementStat(StatType_RESPONSES_DROPPED_BY_REQUEST_TRACKER)
 				continue // most likely we've already timed out the request.
 			}
-			delete(ctxt.outstandingRequests, req.getRequestId())
-			req.stopTimer()
-			req.setResponse(resp)
+			delete(ctxt.outstandingRequests, originatingRequest.getRequestId())
+			originatingRequest.stopTimer()
+			originatingRequest.setResponse(responseFromRemoteAgent)
 			ctxt.incrementStat(StatType_RESPONSES_RELEASED_TO_CLIENT)
-			req.notify()
+			originatingRequest.notify()
 
 		case requestId := <-ctxt.requestTimeouts:
-			req = ctxt.outstandingRequests[requestId]
-			if req == nil {
+			timedoutRequest := ctxt.outstandingRequests[requestId]
+			if timedoutRequest == nil {
 				ctxt.Errorf("Context %s: Got request timeout for unknown requestid: %d", ctxt.name, requestId)
 				ctxt.incrementStat(StatType_UNKNOWN_REQUESTS_TIMED_OUT)
 				continue
 			}
-			if req.isRetryRequired() {
-				req.startTimer(ctxt.handleRequestTimeout)
+			if timedoutRequest.isRetryRequired() {
+				timedoutRequest.startTimer(ctxt.handleRequestTimeout)
 				ctxt.incrementStat(StatType_REQUESTS_TIMED_OUT)
 				ctxt.incrementStat(StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL)
-				ctxt.outboundFlowControlQueue <- req
+				ctxt.outboundFlowControlQueue <- timedoutRequest
 			} else {
-				delete(ctxt.outstandingRequests, req.getRequestId())
-				req.setTransportError(TimeoutError{})
+				delete(ctxt.outstandingRequests, timedoutRequest.getRequestId())
+				timedoutRequest.setTransportError(TimeoutError{})
 				ctxt.incrementStat(StatType_REQUEST_RETRIES_EXHAUSTED)
-				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, req.LoggingId())
-				req.notify()
+				ctxt.Debugf("Ctxt %s: final timeout for %s", ctxt.name, timedoutRequest.LoggingId())
+				timedoutRequest.notify()
 			}
 
 		case <-ctxt.internalShutdownNotification:
@@ -455,7 +453,6 @@ func (ctxt *snmpContext) processOutboundQueue() {
 				ctxt.Debugf("Couldn't encode message: err: %s. Message:\n%s", err, spew.Sdump(msg))
 				continue
 			}
-			ctxt.Debugf("Ctxt %s: Sending message:\n%s", ctxt.name, spew.Sdump(msg))
 			if n, err := ctxt.conn.WriteToUDP(encodedMsg, msg.Address()); err != nil || n != len(encodedMsg) {
 				if strings.HasSuffix(err.Error(), "closed network connection") {
 					ctxt.Debugf("Ctxt %s: outbound flow controller shutting down due to closed connection", ctxt.name)
@@ -576,7 +573,7 @@ func (ctxt *snmpContext) routeIncomingMessage(msg SnmpMessage) {
 
 func (ctxt *snmpContext) startRequestPools() {
 	ctxt.communityRequestPool = newRequestPool(ctxt.maxTargets, func() SnmpRequest {
-		return newcommunityRequest()
+		return newCommunityRequest()
 	}, ctxt)
 }
 

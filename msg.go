@@ -3,6 +3,7 @@ package gosnmp
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -45,6 +46,8 @@ type SnmpMessage interface {
 	setVersion(version SnmpVersion)
 	getPduType() pduType
 	setPduType(pduType pduType)
+	lock()
+	unlock()
 }
 
 type SnmpRequest interface {
@@ -94,10 +97,19 @@ type V2cMessage interface {
 
 // base type for all SNMP messages
 type baseMsg struct {
+	dataLock sync.Mutex
 	version  SnmpVersion
 	pduType  pduType
 	varbinds []Varbind
 	address  *net.UDPAddr
+}
+
+func (msg *baseMsg) lock() {
+	msg.dataLock.Lock()
+}
+
+func (msg *baseMsg) unlock() {
+	msg.dataLock.Unlock()
 }
 
 func (msg *baseMsg) getVersion() SnmpVersion {
@@ -300,7 +312,7 @@ type communityRequest struct {
 	transportError   error
 }
 
-func newcommunityRequest() *communityRequest {
+func newCommunityRequest() *communityRequest {
 	req := new(communityRequest)
 	req.requestDoneChan = make(chan bool)
 	return req

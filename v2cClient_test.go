@@ -1,3 +1,5 @@
+// +build !race
+
 package gosnmp_test
 
 import (
@@ -120,15 +122,15 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 			})
 
 			Context("as a GET request", func() {
-				Context("with no GetOid()S", func() {
+				Context("with no OIDs", func() {
 					BeforeEach(func() {
 						req = clientCtxt.AllocateV2cGetRequest()
 					})
 					ValidateRequest()
 				})
-				Context("with a predefined set of GetOid()S", func() {
+				Context("with a predefined set of OIDs", func() {
 					BeforeEach(func() {
-						oids := []snmp.ObjectIdentifier{snmp.SYS_OBJECT_IDoid, snmp.SYS_NAMEoid, snmp.SYS_LOCATIONoid, snmp.SYS_DESCRoid, snmp.SYS_CONTACToid, snmp.SYS_UPTIMEoid}
+						oids := []snmp.ObjectIdentifier{snmp.SYS_OBJECT_ID_OID, snmp.SYS_NAME_OID, snmp.SYS_LOCATION_OID, snmp.SYS_DESCR_OID, snmp.SYS_CONTACT_OID, snmp.SYS_UPTIME_OID}
 						req = clientCtxt.AllocateV2cGetRequestWithOids(oids)
 					})
 					ValidateRequest()
@@ -282,8 +284,8 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 			)
 			BeforeEach(func() {
 				agent = snmp.NewAgentWithPort("testAgent", 10, 2000, logger, new(fakeTransactionProvider))
-				agent.RegisterSingleVarOidHandler(snmp.SYS_OBJECT_IDoid, handlers.NewObjectIdentifierOidHandler(snmp.ObjectIdentifier{1, 3, 6, 1, 4, 1, 424242, 1, 1}, false))
-				agent.RegisterSingleVarOidHandler(snmp.SYS_DESCRoid, handlers.NewStringOidHandler("Test System Description", false))
+				agent.RegisterSingleVarOidHandler(snmp.SYS_OBJECT_ID_OID, handlers.NewObjectIdentifierOidHandler(snmp.ObjectIdentifier{1, 3, 6, 1, 4, 1, 424242, 1, 1}, false))
+				agent.RegisterSingleVarOidHandler(snmp.SYS_DESCR_OID, handlers.NewStringOidHandler("Test System Description", false))
 				agent.SetDecodeErrorLogging(true)
 			})
 			AfterEach(func() {
@@ -298,7 +300,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
 						go func(client *snmp.V2cClient) {
-							req := clientCtxt.AllocateV2cGetRequestWithOids([]snmp.ObjectIdentifier{snmp.SYS_OBJECT_IDoid, snmp.SYS_DESCRoid})
+							req := clientCtxt.AllocateV2cGetRequestWithOids([]snmp.ObjectIdentifier{snmp.SYS_OBJECT_ID_OID, snmp.SYS_DESCR_OID})
 							client.SendRequest(req)
 							err := req.TransportError()
 							Ω(err).Should(BeNil())
