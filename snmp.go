@@ -383,13 +383,11 @@ func (ctxt *snmpContext) trackRequests() {
 	for {
 		select {
 		case outboundReq := <-ctxt.requestsFromClients:
-			outboundReq.lock()
 			nextRequestId += 1
 			outboundReq.setRequestId(nextRequestId)
 			ctxt.outstandingRequests[nextRequestId] = outboundReq
 			outboundReq.startTimer(ctxt.handleRequestTimeout)
 			ctxt.incrementStat(StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL)
-			outboundReq.unlock()
 			ctxt.outboundFlowControlQueue <- outboundReq
 
 		case responseFromRemoteAgent := <-ctxt.responsesFromAgents:

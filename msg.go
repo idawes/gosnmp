@@ -46,8 +46,6 @@ type SnmpMessage interface {
 	setVersion(version SnmpVersion)
 	getPduType() pduType
 	setPduType(pduType pduType)
-	lock()
-	unlock()
 }
 
 type SnmpRequest interface {
@@ -102,14 +100,6 @@ type baseMsg struct {
 	pduType  pduType
 	varbinds []Varbind
 	address  *net.UDPAddr
-}
-
-func (msg *baseMsg) lock() {
-	msg.dataLock.Lock()
-}
-
-func (msg *baseMsg) unlock() {
-	msg.dataLock.Unlock()
 }
 
 func (msg *baseMsg) getVersion() SnmpVersion {

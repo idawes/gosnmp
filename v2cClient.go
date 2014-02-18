@@ -52,12 +52,10 @@ func (ctxt *ClientContext) NewV2cClientWithPort(community string, address string
 func (client *V2cClient) SendRequest(req CommunityRequest) {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	req.lock()
 	req.setAddress(client.Address)
 	req.setCommunity(client.Community)
 	req.setTimeoutSeconds(client.TimeoutSeconds)
 	req.setRetriesRemaining(client.Retries)
-	req.unlock()
 	client.snmpContext.sendRequest(req)
 	req.wait()
 	return

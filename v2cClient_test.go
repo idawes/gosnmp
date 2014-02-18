@@ -1,4 +1,4 @@
-// +build !race
+// +build race
 
 package gosnmp_test
 
@@ -33,14 +33,14 @@ func (provider *fakeTransactionProvider) AbortTxn(interface{}) {
 func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan string) {
 	Describe("V2cClient", func() {
 		var (
-			clientCtxt *snmp.ClientContext
+			clientCtxt snmp.ClientContext
 			numClients int
 			clients    []*snmp.V2cClient
 			err        error
 		)
 		BeforeEach(func() {
 			testId := <-testIdGenerator
-			clientCtxt = snmp.NewClientContext(testId, 1000, logger)
+			clientCtxt = *snmp.NewClientContext(testId, 1000, logger)
 			clientCtxt.SetDecodeErrorLogging(true)
 			numClients = 1
 		})
@@ -160,7 +160,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					for i := 0; i < numClients; i++ {
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
-						go func(client *snmp.V2cClient) {
+						go func(client *snmp.V2cClient, clientCtxt snmp.ClientContext) {
 							req := clientCtxt.AllocateV2cGetRequest()
 							client.SendRequest(req)
 							err := req.TransportError()
@@ -169,13 +169,13 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 							Ω(ok).Should(BeTrue())
 							waitGroup.Done()
 							clientCtxt.FreeV2cRequest(req)
-						}(clients[i])
+						}(clients[i], clientCtxt)
 					}
 					waitGroup.Wait()
 					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1))+0.2))
 					requestCount := numClients
 					msgCount := requestCount * (retries + 1)
-					validateStats(clientCtxt, map[snmp.StatType]int{
+					validateStats(&clientCtxt, map[snmp.StatType]int{
 						snmp.StatType_REQUESTS_SENT:                      requestCount,
 						snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
 						snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
@@ -223,7 +223,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					for i := 0; i < numClients; i++ {
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
-						go func(client *snmp.V2cClient) {
+						go func(client *snmp.V2cClient, clientCtxt snmp.ClientContext) {
 							for j := 0; j < numRequests; j++ {
 								req := clientCtxt.AllocateV2cGetRequest()
 								client.SendRequest(req)
@@ -234,13 +234,13 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 								waitGroup.Done()
 								clientCtxt.FreeV2cRequest(req)
 							}
-						}(clients[i])
+						}(clients[i], clientCtxt)
 					}
 					waitGroup.Wait()
 					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(timeoutSeconds*(retries+1)*numRequests)+0.2))
 					requestCount := numClients * numRequests
 					msgCount := requestCount * (retries + 1)
-					validateStats(clientCtxt, map[snmp.StatType]int{
+					validateStats(&clientCtxt, map[snmp.StatType]int{
 						snmp.StatType_REQUESTS_SENT:                      requestCount,
 						snmp.StatType_REQUEST_RETRIES_EXHAUSTED:          requestCount,
 						snmp.StatType_REQUESTS_TIMED_OUT:                 requestCount * retries,
@@ -299,7 +299,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					for i := 0; i < numClients; i++ {
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
-						go func(client *snmp.V2cClient) {
+						go func(client *snmp.V2cClient, clientCtxt snmp.ClientContext) {
 							req := clientCtxt.AllocateV2cGetRequestWithOids([]snmp.ObjectIdentifier{snmp.SYS_OBJECT_ID_OID, snmp.SYS_DESCR_OID})
 							client.SendRequest(req)
 							err := req.TransportError()
@@ -312,12 +312,12 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 							// }
 							clientCtxt.FreeV2cRequest(req)
 							waitGroup.Done()
-						}(clients[i])
+						}(clients[i], clientCtxt)
 					}
 					waitGroup.Wait()
 					Ω(time.Since(start).Seconds()).Should(BeNumerically("<", float64(0.2)))
 					// Check Client stats
-					validateStats(clientCtxt, map[snmp.StatType]int{
+					validateStats(&clientCtxt, map[snmp.StatType]int{
 						snmp.StatType_RESPONSES_RECEIVED:                 numClients,
 						snmp.StatType_REQUESTS_SENT:                      numClients,
 						snmp.StatType_REQUESTS_FORWARDED_TO_FLOW_CONTROL: numClients,
