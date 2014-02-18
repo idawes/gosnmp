@@ -160,6 +160,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					for i := 0; i < numClients; i++ {
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
+						// We're passing clientCtxt explicitly to remove what the race detector perceives to be a race condition with the write to the clientCtxt variable in the top level BeforeEach()
 						go func(client *snmp.V2cClient, clientCtxt snmp.ClientContext) {
 							req := clientCtxt.AllocateV2cGetRequest()
 							client.SendRequest(req)
@@ -223,6 +224,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					for i := 0; i < numClients; i++ {
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
+						// We're passing clientCtxt explicitly to remove what the race detector perceives to be a race condition with the write to the clientCtxt variable in the top level BeforeEach()
 						go func(client *snmp.V2cClient, clientCtxt snmp.ClientContext) {
 							for j := 0; j < numRequests; j++ {
 								req := clientCtxt.AllocateV2cGetRequest()
@@ -299,6 +301,7 @@ func setupV2cClientTest(logger seelog.LoggerInterface, testIdGenerator chan stri
 					for i := 0; i < numClients; i++ {
 						clients[i].Retries = retries
 						clients[i].TimeoutSeconds = timeoutSeconds
+						// We're passing clientCtxt explicitly to remove what the race detector perceives to be a race condition with the write to the clientCtxt variable in the top level BeforeEach()
 						go func(client *snmp.V2cClient, clientCtxt snmp.ClientContext) {
 							req := clientCtxt.AllocateV2cGetRequestWithOids([]snmp.ObjectIdentifier{snmp.SYS_OBJECT_ID_OID, snmp.SYS_DESCR_OID})
 							client.SendRequest(req)
