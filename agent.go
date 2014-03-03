@@ -6,13 +6,13 @@ import (
 )
 
 type TransactionProvider interface {
-	// StartTxn should begin a transaction and return an opaque reference to the new transaction. If a transaction can't
-	// be started, a nil value should be returned.
+	// StartTxn creates a new transaction and returns an opaque reference to it. If a transaction can't
+	// be started, a nil value will be returned.
 	StartTxn() interface{}
-	// CommitTxn should commit the given transaction. If the transaction can't be committed for any reason, it should be
-	// aborted and CommitTxn should return false. Otherwise, CommitTxn should return true.
+	// CommitTxn commits the given transaction. If the transaction can't be committed for any reason, it will be
+	// aborted and CommitTxn will return false. Otherwise, CommitTxn will return true.
 	CommitTxn(interface{}) bool
-	// AbortTxn should abort the given transaction, performing any rollback required.
+	// AbortTxn aborts the given transaction, performing any rollback required.
 	AbortTxn(interface{})
 }
 
@@ -36,7 +36,7 @@ func NewAgentWithPort(name string, maxTargets int, port int, logger Logger, txnP
 	return agent
 }
 
-func (agent *Agent) processcommunityRequest(req *communityRequest) {
+func (agent *Agent) processCommunityRequest(req *communityRequest) {
 	resp := req.createResponse()
 	txn := agent.txnProvider.StartTxn()
 	if txn == nil {
@@ -75,7 +75,7 @@ func (agent *Agent) lookupHandler(oid ObjectIdentifier) *oidTreeNode {
 	tnode := agent.oidTree.Ceil(oidTreeLookup(oid))
 	if tnode == nil {
 		// This should only ever hit if no handlers have been added to this agent... Very much a corner case.
-		agent.Errorf("------ Ctxt %s, YOU APPEAR TO HAVE NO HANDLERS BOUND", agent.name)
+		agent.Errorf("------ Agent %s, YOU APPEAR TO HAVE NO HANDLERS BOUND", agent.name)
 		return nil
 	}
 	node := tnode.(*oidTreeNode)

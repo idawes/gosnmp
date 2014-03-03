@@ -42,7 +42,7 @@ func (e InvalidStateError) Error() string {
 // --------------------------- SNMP Context -------------------------
 
 type RequestProcessor interface {
-	processcommunityRequest(*communityRequest)
+	processCommunityRequest(*communityRequest)
 }
 
 type berEncodable interface {
@@ -556,7 +556,7 @@ func (ctxt *snmpContext) routeIncomingMessage(msg SnmpMessage) {
 			ctxt.incrementStat(StatType_COMMUNITY_REQUEST_RECEIVED_WITH_NO_REQUEST_PROCESSOR)
 			return
 		}
-		ctxt.incomingRequestProcessor.processcommunityRequest(msg.(*communityRequest))
+		ctxt.incomingRequestProcessor.processCommunityRequest(msg.(*communityRequest))
 	case SnmpResponse:
 		ctxt.responsesFromAgents <- msg.(SnmpResponse)
 	}
